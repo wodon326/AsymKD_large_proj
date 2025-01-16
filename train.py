@@ -47,6 +47,8 @@ def setup(rank, world_size):
 def cleanup():
     dist.destroy_process_group()
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters())
 
 def compute_errors(flow_gt, flow_preds, valid_arr):
     """Compute metrics for 'pred' compared to 'gt'
