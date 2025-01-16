@@ -9,7 +9,6 @@ from tqdm import tqdm
 
 from torch.utils.tensorboard import SummaryWriter
 import torch
-import torch.nn as nn
 import torch.optim as optim
 
 import torch.distributed as dist
@@ -237,97 +236,75 @@ class Logger:
     def close(self):
         self.writer.close()
 
+class State(object):
+    def __init__(self, model, optimizer, scheduler):
+        self.model = model
+        self.optimizer = optimizer
+        self.scheduler = scheduler
+
+    def capture(self):
+        return {
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict(),
+        }
+    
+    def apply_snapshot(self, obj, device):
+        self.model.load_state_dict(obj['model_state_dict'].to(device), strict=False)
+        self.optimizer.load_state_dict(obj['optimizer_state_dict'].to(device))
+        self.scheduler.load_state_dict(obj['scheduler_state_dict'].to(device))
+    
+    def save(self, path):
+        torch.save(self.capture(), path)
+    
+    def load(self, path, device):
+        obj = torch.load(path, map_location=torch.device('cpu'))
+        self.apply_snapshot(obj, device)
+
 def train(rank, world_size, args):
     try:
         setup(rank, world_size)
         torch.cuda.set_device(rank)
         torch.cuda.empty_cache()
 
-        AsymKD_Compress = AsymKD_compress().to(rank)
-        '''Depth anything pretrain model loading'''
-        restore_ckpt = 'depth_anything_vits14.pth'
-        if restore_ckpt is not None:
-            assert restore_ckpt.endswith(".pth")
-            logging.info("Loading checkpoint...")
-            checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
-            model__state_dict = AsymKD_Compress.state_dict()
-            new_state_dict = {}
-            for k, v in checkpoint.items():
-                # 키 매핑 규칙을 정의
-                new_key = k
-                if new_key in model__state_dict:
-                    new_state_dict[new_key] = v
-
-            model__state_dict.update(new_state_dict)
-            AsymKD_Compress.load_state_dict(model__state_dict)
-
-        if(rank == 0):
-            print(new_state_dict.keys())
-            
-        '''Depth anything pretrain model loading'''
-        restore_ckpt = 'depth_anything_vitl14.pth'
-        if restore_ckpt is not None:
-            assert restore_ckpt.endswith(".pth")
-            logging.info("Loading checkpoint...")
-            checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
-            model__state_dict = AsymKD_Compress.state_dict()
-            new_state_dict = {}
-            for k, v in checkpoint.items():
-                if('depth_head' in k):
-                    continue
-                # 키 매핑 규칙을 정의
-                new_key = k.replace('pretrained', 'teacher_pretrained')  # 'module.'를 제거
-                if new_key in model__state_dict:
-                    new_state_dict[new_key] = v
-
-            model__state_dict.update(new_state_dict)
-            AsymKD_Compress.load_state_dict(model__state_dict)
-
-        if(rank == 0):
-            print(new_state_dict.keys())
-
-
-        AsymKD_Compress = torch.nn.SyncBatchNorm.convert_sync_batchnorm(AsymKD_Compress)
-        model = DDP(AsymKD_Compress, device_ids=[rank])
-        print("Parameter Count: %d" % count_parameters(model))
-        print("AsymKD_VIT Train")
-        train_loader = datasets.fetch_dataloader(args,rank, world_size)
-        optimizer, scheduler = fetch_optimizer(args, model)
+        # init scalars
+        save_step = 250
         total_steps = 0
-        logger = Logger(model, scheduler)
-
-        model.train()
-        #model.module.freeze_bn() # We keep BatchNorm frozen
-
-        validation_frequency = 10000
-
-        scaler = GradScaler(enabled=args.mixed_precision)
-
-        should_keep_training = True
-        global_batch_num = 0
         epoch = 0
 
+        # load model
+        AsymKD_Compress = AsymKD_compress().to(rank)
+        student_ckpt = 'depth_anything_vits14.pth'
+        teacher_ckpt = 'depth_anything_vitl14.pth'
+        if rank == 0:
+            logging.info(f"loading backbones from {student_ckpt} and {teacher_ckpt}")
+        AsymKD_Compress.load_backbone_from_ckpt(student_ckpt, teacher_ckpt, device=rank)
+        AsymKD_Compress = torch.nn.SyncBatchNorm.convert_sync_batchnorm(AsymKD_Compress)
+        #model.module.freeze_bn() # We keep BatchNorm frozen
+        model = DDP(AsymKD_Compress, device_ids=[rank])
+        model.train()
+        
+        if rank == 0:
+            logging.info(f"Parameter Count: {count_parameters(model)}")
+            logging.info("AsymKD_VIT Train")
+        
+        # load others
+        train_loader = datasets.fetch_dataloader(args,rank, world_size)
+        optimizer, scheduler = fetch_optimizer(args, model)
+        scaler = GradScaler(enabled=args.mixed_precision)
+        logger = Logger(model, scheduler)
+        state = State(model, optimizer, scheduler)
+
+        # load loss
         SSILoss = ScaleAndShiftInvariantLoss()
         grad_loss = GradL1Loss()
 
-        save_step = 250
-        
+        # load snapshot
         if args.restore_ckpt is not None:
             assert args.restore_ckpt.endswith(".pth")
-            logging.info("Loading checkpoint...")
-            checkpoint = torch.load(args.restore_ckpt, map_location=torch.device('cuda', rank))
-            if 'optimizer_state_dict' in checkpoint:
-                model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-                total_steps = checkpoint['total_steps']
-            else:
-                model.load_state_dict(checkpoint, strict=False)
-            logging.info(f"Done loading checkpoint")
+            state.load(args.restore_ckpt, rank)
 
-
-        while should_keep_training:
-
+        while total_steps > args.num_steps:
             for i_batch, data_blob in enumerate(tqdm(train_loader)):
                 # if(pass_num>0):
                 #     pass_num -= 1
@@ -352,14 +329,21 @@ def train(rank, world_size, args):
                     a = open(filename, 'a')
                     a.write(str(e)+'\n')
                     a.close()
+                
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
+                scaler.step(optimizer)
+                scheduler.step()
+                scaler.update()
 
-                if(rank==0):
-                    logger.writer.add_scalar("live_loss", l_si.item(), global_batch_num)
-                    
-                    logger.writer.add_scalar("gradient_matching_loss", l_grad.item(), global_batch_num)
-                    
-                    logger.writer.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], global_batch_num)
+                if rank == 0:
+                    logger.writer.add_scalar("live_loss", l_si.item(), total_steps)
+                    logger.writer.add_scalar("gradient_matching_loss", l_grad.item(), total_steps)
+                    logger.writer.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], total_steps)
+                    _ , metrics = sequence_loss(flow_predictions, flow, valid)
+                    logger.push(metrics)
 
                     if(total_steps % 10 == 10-1):
                         # inference visualization in tensorboard while training
@@ -372,60 +356,26 @@ def train(rank, world_size, args):
                         pred = flow_predictions[0].cpu().detach().numpy()
                         pred = ((pred - np.min(pred)) / (np.max(pred) - np.min(pred))) * 255
             
-                        logger.writer.add_image('RGB', rgb.astype(np.uint8), global_batch_num)
-                        logger.writer.add_image('GT', gt.astype(np.uint8), global_batch_num)
-                        logger.writer.add_image('Prediction', pred.astype(np.uint8), global_batch_num)
-                    _ , metrics = sequence_loss(flow_predictions, flow, valid)
-                    logger.push(metrics)
+                        logger.writer.add_image('RGB', rgb.astype(np.uint8), total_steps)
+                        logger.writer.add_image('GT', gt.astype(np.uint8), total_steps)
+                        logger.writer.add_image('Prediction', pred.astype(np.uint8), total_steps)
 
-                
-
-
-                global_batch_num += 1
-                scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-
-                scaler.step(optimizer)
-                scheduler.step()
-                scaler.update()
-
-                if epoch >= 0 and total_steps % save_step == save_step-1 and rank == 0:
-                    save_path = Path('checkpoints_new_loss_001_smooth/%d_%s.pth' % (total_steps + 1, args.name))
-                    logging.info(f"Saving file {save_path.absolute()}")
-                    torch.save({
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'scheduler_state_dict': scheduler.state_dict(),
-                        'total_steps': total_steps
-                    }, save_path)
-
+                    if total_steps % save_step == save_step-1:
+                        save_path = Path(f"checkpoints_new_loss_001_smooth/{total_steps + 1}_{args.name}.pth")
+                        logging.info(f"Saving file {save_path.absolute()}")
+                        state.save(save_path)
 
                 if total_steps%100==0:
                     torch.cuda.empty_cache()
                     gc.collect()
 
                 total_steps += 1
-
-
-
-                if total_steps > args.num_steps:
-                    should_keep_training = False
-                    break
-            epoch += 1     
-                
+            epoch += 1      
 
         print("FINISHED TRAINING")
         logger.close()
-        PATH = 'checkpoints_new_loss_001_smooth/%s.pth' % args.name
-        torch.save({
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'scheduler_state_dict': scheduler.state_dict(),
-            'total_steps': total_steps
-        }, PATH)
-
-        return PATH
+        state.save(f"checkpoints_new_loss_001_smooth/{args.name}.pth")
+        return None
     finally:
         cleanup()
 
