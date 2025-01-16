@@ -139,9 +139,9 @@ class DPTHead(nn.Module):
         return out
         
         
-class AsymKD_inter_compress(nn.Module):
+class AsymKD_compress_latent1(nn.Module):
     def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(AsymKD_inter_compress, self).__init__()
+        super(AsymKD_compress_latent1, self).__init__()
         
         assert encoder in ['vits', 'vitb', 'vitl']
         
@@ -231,8 +231,8 @@ class AsymKD_inter_compress(nn.Module):
     def forward(self, x):
         h, w = x.shape[-2:]
 
-        teacher_intermediate_feature = self.teacher_pretrained.get_first_intermediate_layers(x, 5)
-        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 5)
+        teacher_intermediate_feature = self.teacher_pretrained.get_first_intermediate_layers(x, 4)
+        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
         
 
         patch_h, patch_w = h // 14, w // 14
@@ -241,10 +241,13 @@ class AsymKD_inter_compress(nn.Module):
         feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
         feat = self.Projects_layers_Self(feat)
 
-        features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 4, return_class_token=False)
-        
+        features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 3, return_class_token=False)
+        proj_feature = []
+        proj_feature.append(feat)
+        for i_feat in features:
+            proj_feature.append(i_feat)
 
-        depth = self.depth_head(features, patch_h, patch_w)
+        depth = self.depth_head(proj_feature, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
         depth = F.relu(depth)
         depth = self.nomalize(depth)
