@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
-from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
 from depth_anything.blocks import FeatureFusionBlock, _make_scratch
 
