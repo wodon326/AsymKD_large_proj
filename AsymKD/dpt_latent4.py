@@ -167,8 +167,6 @@ class AsymKD_compress(nn.Module):
             self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(encoder), source='local', pretrained=False).eval()
         else:
             self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(encoder)).eval()
-            
-
         
         for i, (name, param) in enumerate(self.teacher_pretrained.named_parameters()):
             param.requires_grad = False
@@ -177,7 +175,6 @@ class AsymKD_compress(nn.Module):
             param.requires_grad = False
 
         dim = self.pretrained.blocks[0].attn.qkv.in_features
-
         
         depth = 1
         drop_path_rate=0.0
@@ -233,7 +230,6 @@ class AsymKD_compress(nn.Module):
                 init_values=None,
             )
          for _ in range(4)])
-        
 
         self.depth_head = DPTHead(1, dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
         for i, (name, param) in enumerate(self.depth_head.named_parameters()):
