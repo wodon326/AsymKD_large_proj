@@ -20,6 +20,16 @@ def _make_fusion_block(features, use_bn, size = None):
         size=size,
     )
 
+class NormalizeLayer(nn.Module):
+    def __init__(self):
+        super(NormalizeLayer, self).__init__()
+    
+    def forward(self, x):
+        min_val = x.min()
+        max_val = x.max()
+        x = (x - min_val) / (max_val - min_val + 1e-6)  # 작은 값을 더하여 0으로 나누는 것을 방지합니다.
+        return x
+
 
 class DPTHead(nn.Module):
     def __init__(self, nclass, in_channels, features= 64, use_bn=False, out_channels= [48, 96, 192, 384], use_clstoken=False):
@@ -254,14 +264,4 @@ class AsymKD_compress(nn.Module):
         depth = self.nomalize(depth) if self.training else depth
 
         return depth
-    
-class NormalizeLayer(nn.Module):
-    def __init__(self):
-        super(NormalizeLayer, self).__init__()
-    
-    def forward(self, x):
-        min_val = x.min()
-        max_val = x.max()
-        x = (x - min_val) / (max_val - min_val + 1e-6)  # 작은 값을 더하여 0으로 나누는 것을 방지합니다.
-        return x
     
