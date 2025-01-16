@@ -263,7 +263,7 @@ class AsymKD_compress(nn.Module):
 
         return depth
     
-    def load_state_from_ckpt(
+    def load_backbone_from_ckpt(
         self,
         student_ckpt: str,
         teacher_ckpt: str,
