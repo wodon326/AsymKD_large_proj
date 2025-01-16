@@ -1,5 +1,5 @@
 from __future__ import print_function, division
-
+import os
 import argparse
 import logging
 import numpy as np
@@ -15,10 +15,9 @@ import torch.optim as optim
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
-from AsymKD.dpt import AsymKD_compress
+from AsymKD.dpt_latent4 import AsymKD_compress
 from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss
 
-from AsymKD_evaluate import *
 import core.AsymKD_datasets as datasets
 import gc
 
