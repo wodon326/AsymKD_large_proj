@@ -295,7 +295,7 @@ class AsymKD_compress(nn.Module):
         for i, (name, param) in enumerate(self.teacher_pretrained.named_parameters()):
             param.requires_grad = False
 
-        for i, (name, param) in enumerate(self.student_pretrained.named_parameters()):
+        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
             param.requires_grad = False
         
         return None
