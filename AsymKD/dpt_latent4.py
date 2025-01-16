@@ -149,30 +149,32 @@ class DPTHead(nn.Module):
         
         
 class AsymKD_compress(nn.Module):
-    def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
+    def __init__(
+        self, 
+        student_ckpt: str='depth_anything_vits14.pth',
+        teacher_ckpt: str='depth_anything_vitl14.pth',
+        features: int=64,
+        out_channels: list[int]=[48, 96, 192, 384], 
+        use_bn: bool=False, 
+        use_clstoken: bool=False, 
+        localhub: bool=True
+    ):
         super(AsymKD_compress, self).__init__()
         
-        assert encoder in ['vits', 'vitb', 'vitl']
-        
-        self.teacher_encoder = 'vitl'
+        student_encoder = 'vits'
+        teacher_encoder = 'vitl'
         
         # in case the Internet connection is not stable, please load the DINOv2 locally
         if localhub:
-            self.teacher_pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(self.teacher_encoder), source='local', pretrained=False).eval()
+            self.teacher_pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(teacher_encoder), source='local', pretrained=False).eval()
         else:
-            self.teacher_pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(self.teacher_encoder)).eval()
+            self.teacher_pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(teacher_encoder)).eval()
 
         # in case the Internet connection is not stable, please load the DINOv2 locally
         if localhub:
-            self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(encoder), source='local', pretrained=False).eval()
+            self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(student_encoder), source='local', pretrained=False).eval()
         else:
-            self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(encoder)).eval()
-        
-        for i, (name, param) in enumerate(self.teacher_pretrained.named_parameters()):
-            param.requires_grad = False
-
-        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
-            param.requires_grad = False
+            self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(student_encoder)).eval()
 
         dim = self.pretrained.blocks[0].attn.qkv.in_features
         
@@ -261,3 +263,39 @@ class AsymKD_compress(nn.Module):
 
         return depth
     
+    def load_state_from_ckpt(
+        self,
+        student_ckpt: str,
+        teacher_ckpt: str,
+        device: torch.device,
+    ):
+        assert student_ckpt.endswith('.pth') and teacher_ckpt.endswith('.pth'), 'Please provide the path to the checkpoint file.'
+        
+        ckpt = torch.load(student_ckpt, map_location=device)
+        model_state_dict = self.state_dict()
+        new_state_dict = {
+            k: v for k, v in ckpt.items() if k in model_state_dict
+        }
+        model_state_dict.update(new_state_dict)
+        self.load_state_dict(model_state_dict)
+
+        ckpt = torch.load(teacher_ckpt, map_location=device)
+        new_state_dict = {}
+        for k, v in ckpt.items():
+            if('depth_head' in k):
+                continue
+            # 키 매핑 규칙을 정의
+            new_key = k.replace('pretrained', 'teacher_pretrained')  # 'module.'를 제거
+            if new_key in model_state_dict:
+                new_state_dict[new_key] = v
+
+        model_state_dict.update(new_state_dict)
+        self.load_state_dict(model_state_dict)
+
+        for i, (name, param) in enumerate(self.teacher_pretrained.named_parameters()):
+            param.requires_grad = False
+
+        for i, (name, param) in enumerate(self.student_pretrained.named_parameters()):
+            param.requires_grad = False
+        
+        return None
