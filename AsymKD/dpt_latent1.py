@@ -224,7 +224,7 @@ class AsymKD_compress_latent1(nn.Module):
         for i, (name, param) in enumerate(self.depth_head.named_parameters()):
             param.requires_grad = False
         
-        self.pretrained.unfreeze_last_n_blocks(n = 4)
+        self.pretrained.unfreeze_last_n_blocks(n = 3)
 
         self.nomalize = NormalizeLayer()
 

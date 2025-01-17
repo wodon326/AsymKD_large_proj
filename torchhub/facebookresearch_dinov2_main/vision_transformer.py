@@ -359,7 +359,7 @@ class DinoVisionTransformer(nn.Module):
     ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]]]:
         
         output = self._get_first_intermediate_layers_not_chunked(x, n)
-        return output
+        return output[:, 1 + self.num_register_tokens:]
     
     def get_first_intermediate_layers_seg(
         self,
@@ -383,16 +383,14 @@ class DinoVisionTransformer(nn.Module):
         outputs = self._get_intermediate_layers_not_chunked_start_intermediate(x, n)
         if norm:
             outputs = [self.norm(out) for out in outputs]
-        class_tokens = [out[:, 0] for out in outputs]
-        outputs = [out[:, 1 + self.num_register_tokens:] for out in outputs]
+        # class_tokens = [out[:, 0] for out in outputs]
+        # outputs = [out[:, 1 + self.num_register_tokens:] for out in outputs]
         if reshape:
             B, _, w, h = x.shape
             outputs = [
                 out.reshape(B, w // self.patch_size, h // self.patch_size, -1).permute(0, 3, 1, 2).contiguous()
                 for out in outputs
             ]
-        if return_class_token:
-            return tuple(zip(outputs, class_tokens))
         return tuple(outputs)
 
     def get_intermediate_layers_start_intermediate_seg(
