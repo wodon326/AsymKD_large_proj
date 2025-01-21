@@ -11,17 +11,17 @@ from torch.utils.tensorboard import SummaryWriter
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from AsymKD.dpt_seg import AsymKD_seg_compress
+from AsymKD.dpt_seg_latent4 import AsymKD_seg_compress_latent4
 
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss
 
-from AsymKD_evaluate import *
+from segment_anything import sam_model_registry, SamPredictor
 import core.AsymKD_datasets_seg as datasets
 import gc
-
+import os
 import torch.nn.functional as F
 try:
     from torch.cuda.amp import GradScaler
@@ -241,7 +241,6 @@ def train(rank, world_size, args):
         setup(rank, world_size)
         torch.cuda.set_device(rank)
         torch.cuda.empty_cache()
-        DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         checkpoint = "sam_vit_l_0b3195.pth"
         model_type = "vit_l"
@@ -250,7 +249,8 @@ def train(rank, world_size, args):
         for child in segment_anything.children():
             ImageEncoderViT = child
             break
-        AsymKD_VIT = AsymKD_seg_compress(ImageEncoderViT = ImageEncoderViT).to(rank)
+
+        AsymKD_VIT = AsymKD_seg_compress_latent4(ImageEncoderViT = ImageEncoderViT).to(rank)
         restore_ckpt = 'depth_anything_vits14.pth'
         # restore_ckpt = '/home/wodon326/project/AsymKD_VIT_Adapter/checkpoints/39000_AsymKD_new_loss.pth'
         if restore_ckpt is not None:
@@ -273,7 +273,9 @@ def train(rank, world_size, args):
             
             for i, (name, param) in enumerate(AsymKD_VIT.named_parameters()):
                 print(f'{name} : {param.requires_grad}')
-            
+
+                
+        AsymKD_VIT = torch.nn.SyncBatchNorm.convert_sync_batchnorm(AsymKD_VIT)
         model = DDP(AsymKD_VIT, device_ids=[rank])
         #print("Parameter Count: %d" % count_parameters(model))
         print("AsymKD_VIT Train")
@@ -296,7 +298,7 @@ def train(rank, world_size, args):
         SSILoss = ScaleAndShiftInvariantLoss()
         grad_loss = GradL1Loss()
 
-        save_step = 500
+        save_step = 250
         
         while should_keep_training:
 
@@ -327,25 +329,27 @@ def train(rank, world_size, args):
 
 
 
-                if(rank==0):
-                    logger.writer.add_scalar("live_loss", l_si.item(), global_batch_num)
-                    logger.writer.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], global_batch_num)
-
-                    # inference visualization in tensorboard while training
-                    rgb = depth_image[0].cpu().detach().numpy()
-                    rgb = ((rgb - np.min(rgb)) / (np.max(rgb) - np.min(rgb))) * 255
-        
-                    gt = flow[0].cpu().detach().numpy()
-                    gt = ((gt - np.min(gt)) / (np.max(gt) - np.min(gt))) * 255
-        
-                    pred = flow_predictions[0].cpu().detach().numpy()
-                    pred = ((pred - np.min(pred)) / (np.max(pred) - np.min(pred))) * 255
-        
-                    logger.writer.add_image('RGB', rgb.astype(np.uint8), global_batch_num)
-                    logger.writer.add_image('GT', gt.astype(np.uint8), global_batch_num)
-                    logger.writer.add_image('Prediction', pred.astype(np.uint8), global_batch_num)
+                if rank == 0:
+                    logger.writer.add_scalar("live_loss", l_si.item(), total_steps)
+                    logger.writer.add_scalar("gradient_matching_loss", l_grad.item(), total_steps)
+                    logger.writer.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], total_steps)
                     _ , metrics = sequence_loss(flow_predictions, flow, valid)
                     logger.push(metrics)
+
+                    if(total_steps % 10 == 10-1):
+                        # inference visualization in tensorboard while training
+                        rgb = depth_image[0].cpu().detach().numpy()
+                        rgb = ((rgb - np.min(rgb)) / (np.max(rgb) - np.min(rgb))) * 255
+            
+                        gt = flow[0].cpu().detach().numpy()
+                        gt = ((gt - np.min(gt)) / (np.max(gt) - np.min(gt))) * 255
+            
+                        pred = flow_predictions[0].cpu().detach().numpy()
+                        pred = ((pred - np.min(pred)) / (np.max(pred) - np.min(pred))) * 255
+            
+                        logger.writer.add_image('RGB', rgb.astype(np.uint8), total_steps)
+                        logger.writer.add_image('GT', gt.astype(np.uint8), total_steps)
+                        logger.writer.add_image('Prediction', pred.astype(np.uint8), total_steps)
 
 
                 global_batch_num += 1

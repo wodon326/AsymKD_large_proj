@@ -7,4 +7,4 @@ python AsymKD_evaluate_affine_inv_gpu_ddp.py \
     --dataset_config config/data_kitti_eigen_test.yaml \
     --alignment least_square_disparity \
     --output_dir output/kitti_eigen_test \
-    --checkpoint_dir /home/dgist/project/AsymKD_VIT_Adapter_large_proj/checkpoints_new_loss_001_smooth
+    --checkpoint_dir /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1

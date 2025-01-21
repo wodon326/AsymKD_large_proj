@@ -173,7 +173,7 @@ class AsymKD_seg_compress_latent4(nn.Module):
         self.Projects_layers_Channel_based_CrossAttn_Block = nn.ModuleList([
             Channel_Based_CrossAttentionBlock(
                 dim_q=in_channels_384,
-                dim_kv=in_channels_1024,
+                dim_kv=self.in_channels_1024,
                 num_heads=6,
                 mlp_ratio=4,
                 qkv_bias=True,
@@ -190,7 +190,7 @@ class AsymKD_seg_compress_latent4(nn.Module):
         self.Projects_layers_Cross = nn.ModuleList([
             CrossAttentionBlock(
                 dim=in_channels_384,
-                num_heads=6,
+                num_heads=16,
                 mlp_ratio=4,
                 qkv_bias=True,
                 proj_bias=True,
@@ -237,10 +237,10 @@ class AsymKD_seg_compress_latent4(nn.Module):
         #segment feature 복사
         seg_feature = F.interpolate(seg_feature, size=(patch_h*2, patch_w*2), mode='bilinear', align_corners=False)
         seg_feature = F.max_pool2d(seg_feature, kernel_size=2)
-        seg_feature = seg_feature.reshape(student_intermediate_feature.shape[0], self.in_channels_1024, patch_h * patch_w).permute(0, 2, 1)
+        seg_feature = seg_feature.reshape(student_features[0].shape[0], self.in_channels_1024, patch_h * patch_w).permute(0, 2, 1)
 
         proj_feature = []
-        for teacher_feat, student_feat, Channel_CrossAttn, CrossAtten, SelfAttn in zip(teacher_features,student_features,self.Projects_layers_Channel_based_CrossAttn_Block,self.Projects_layers_Cross, self.Projects_layers_Self):
+        for student_feat, Channel_CrossAttn, CrossAtten, SelfAttn in zip(student_features,self.Projects_layers_Channel_based_CrossAttn_Block,self.Projects_layers_Cross, self.Projects_layers_Self):
             channel_proj_feat = Channel_CrossAttn(student_feat,seg_feature)
             feat = CrossAtten(student_feat,channel_proj_feat)
             feat = SelfAttn(feat)
@@ -250,173 +250,10 @@ class AsymKD_seg_compress_latent4(nn.Module):
         depth = self.depth_head(proj_feature, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
         depth = F.relu(depth)
-        depth = self.nomalize(depth)
+        depth = self.nomalize(depth) if self.training else depth
 
         return depth   
     
-class AsymKD_compress_Infer(nn.Module):
-    def __init__(self, BriGeS ,encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(AsymKD_compress_Infer, self).__init__()
-        
-        assert encoder in ['vits', 'vitb', 'vitl']
-        
-        self.BriGeS = BriGeS
-
-        # in case the Internet connection is not stable, please load the DINOv2 locally
-        if localhub:
-            self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(encoder), source='local', pretrained=False)
-        else:
-            self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(encoder))
-
-        
-        for i, (name, param) in enumerate(self.BriGeS.named_parameters()):
-            param.requires_grad = False
-
-        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
-            param.requires_grad = False
-
-        dim = self.pretrained.blocks[0].attn.qkv.in_features
-
-        
-        depth = 1
-        drop_path_rate=0.0
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
-
-        in_channels_384 = 384
-        in_channels_1024 = 1024
-
-        self.Projects_layers_Channel_based_CrossAttn_Block = nn.ModuleList([
-            Channel_Based_CrossAttentionBlock(
-                dim_q=in_channels_384,
-                dim_kv=in_channels_1024,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-         for _ in range(4)])
-        
-        self.Projects_layers_Cross = nn.ModuleList([
-            CrossAttentionBlock(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            ) for _ in range(4)])
-
-        self.Projects_layers_Self = nn.ModuleList([
-            Block(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-         for _ in range(4)])
-        
-
-        self.depth_head = DPTHead(1, dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
-        for i, (name, param) in enumerate(self.depth_head.named_parameters()):
-            param.requires_grad = False
-        
-        # self.nomalize = NormalizeLayer()
-
-    def forward(self, x,y):
-        h, w = x.shape[-2:]
-        
-        teacher_features = self.BriGeS(x,y)
-        student_features = self.pretrained.get_intermediate_layers(x, 4, return_class_token=True)
-    
-        patch_h, patch_w = h // 14, w // 14
-
-        proj_feature = []
-        for teacher_feat, student_feat, Channel_CrossAttn, CrossAtten, SelfAttn in zip(teacher_features,student_features,self.Projects_layers_Channel_based_CrossAttn_Block,self.Projects_layers_Cross, self.Projects_layers_Self):
-            student_feat = student_feat[0]
-            channel_proj_feat = Channel_CrossAttn(student_feat,teacher_feat)
-            feat = CrossAtten(student_feat,channel_proj_feat)
-            feat = SelfAttn(feat)
-            proj_feature.append(feat)
-
-        depth = self.depth_head(proj_feature, patch_h, patch_w)
-        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
-        depth = F.relu(depth)
-        # depth = self.nomalize(depth)
-
-        return depth
-    
-    def get_inter_feature(self, x,y):
-        h, w = x.shape[-2:]
-        
-        teacher_features = self.BriGeS(x,y)
-        student_features = self.pretrained.get_intermediate_layers(x, 4, return_class_token=True)
-    
-        patch_h, patch_w = h // 14, w // 14
-
-        proj_feature = []
-        for teacher_feat, student_feat, Channel_CrossAttn, CrossAtten, SelfAttn in zip(teacher_features,student_features,self.Projects_layers_Channel_based_CrossAttn_Block,self.Projects_layers_Cross, self.Projects_layers_Self):
-            student_feat = student_feat[0]
-            channel_proj_feat = Channel_CrossAttn(student_feat,teacher_feat)
-            feat = CrossAtten(student_feat,channel_proj_feat)
-            feat = SelfAttn(feat).cpu()
-            proj_feature.append(feat)
-
-        return proj_feature
-      
-class AsymKD_Student_Infer(nn.Module):
-    def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(AsymKD_Student_Infer, self).__init__()
-        
-        assert encoder in ['vits', 'vitb', 'vitl']
-        
-        # in case the Internet connection is not stable, please load the DINOv2 locally
-        if localhub:
-            self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(encoder), source='local', pretrained=False)
-        else:
-            self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(encoder))
-
-
-        dim = self.pretrained.blocks[0].attn.qkv.in_features
-
-        self.teacher_channel = 768
-        # self.Projects_layers_Linear = nn.ModuleList([
-        #     nn.Linear(dim,self.teacher_channel,bias = True)
-        #     for _ in range(4)])
-        
-        self.depth_head = DPTHead(1, dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
-        
-
-    def forward(self, x):
-        h, w = x.shape[-2:]
-        
-        features = self.pretrained.get_intermediate_layers(x, 4, return_class_token=True)
-    
-        patch_h, patch_w = h // 14, w // 14
-
-        depth = self.depth_head(features, patch_h, patch_w)
-        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
-        depth = F.relu(depth)
-
-        return depth
-
 class NormalizeLayer(nn.Module):
     def __init__(self):
         super(NormalizeLayer, self).__init__()

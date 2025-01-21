@@ -139,12 +139,12 @@ class DPTHead(nn.Module):
         return out
         
         
-class AsymKD_compress_latent1(nn.Module):
+class AsymKD_compress_latent1_avg_ver(nn.Module):
     def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(AsymKD_compress_latent1, self).__init__()
+        super(AsymKD_compress_latent1_avg_ver, self).__init__()
         
         assert encoder in ['vits', 'vitb', 'vitl']
-        
+        print('AsymKD_compress_latent1_avg_ver')
         self.teacher_encoder = 'vitl'
         
         # in case the Internet connection is not stable, please load the DINOv2 locally
@@ -231,10 +231,10 @@ class AsymKD_compress_latent1(nn.Module):
     def forward(self, x):
         h, w = x.shape[-2:]
 
-        teacher_intermediate_feature = self.teacher_pretrained.get_first_intermediate_layers(x, 4)
-        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
+        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
+        teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
         
-
+        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
         patch_h, patch_w = h // 14, w // 14
 
         channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
@@ -249,28 +249,6 @@ class AsymKD_compress_latent1(nn.Module):
         depth = self.nomalize(depth) if self.training else depth
 
         return depth
-    
-    def forward_with_inter_feat(self, x):
-        h, w = x.shape[-2:]
-
-        teacher_intermediate_feature = self.teacher_pretrained.get_first_intermediate_layers(x, 4)
-        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
-        
-
-        patch_h, patch_w = h // 14, w // 14
-
-        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
-        compress_feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
-        compress_feat = self.Projects_layers_Self(feat)
-
-        features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feat, 3, return_class_token=False)
-
-        depth = self.depth_head(features, patch_h, patch_w)
-        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
-        depth = F.relu(depth)
-        depth = self.nomalize(depth) if self.training else depth
-
-        return depth, compress_feat, student_intermediate_feature
     
     
     def load_backbone_from_ckpt(

@@ -45,9 +45,7 @@ from dataset.util.metric import MetricTracker
 import torch.nn.functional as F
 from depth_anything_for_evaluate.dpt import DepthAnything
 from segment_anything import sam_model_registry, SamPredictor
-from AsymKD_student import AsymKD_Student_Infer
-# from AsymKD.dpt import AsymKD_DepthAnything_Infer, AsymKD_DepthAnything
-from AsymKD.dpt import AsymKD_compress_Infer
+from AsymKD.dpt_latent1 import AsymKD_compress_latent1
 from torch.multiprocessing import Manager
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -205,7 +203,7 @@ def eval(rank, world_size, queue, args):
                     model__state_dict.update(new_state_dict)
                     model.load_state_dict(model__state_dict)
             elif model_type == "bfm_compress":
-                model = AsymKD_compress_Infer().to(rank)
+                model = AsymKD_compress_latent1().to(rank)
                 if restore_ckpt is not None:
                     logging.info("Loading checkpoint...")
                     checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
@@ -342,7 +340,7 @@ def eval(rank, world_size, queue, args):
             print(print_str)
 
 
-            metrics_filename = f"eval_metrics-{model_type}-ddp-infer-compress.txt"
+            metrics_filename = f"eval_metrics-{model_type}-ddp-depth-latent1.txt"
 
             _save_to = os.path.join(output_dir, metrics_filename)
             with open(_save_to, "a") as f:
@@ -411,11 +409,16 @@ if "__main__" == __name__:
     world_size = torch.cuda.device_count()
     manager = Manager()
     queue = manager.Queue()    
-    start_num = 25
-    end_num = 2050
+    # start_num = 25
+    # end_num = 6225
         
-    for i in range(end_num,start_num-1,-25):
-        queue.put(f'{args.checkpoint_dir}/{i}0_AsymKD_new_loss.pth')
+    # for i in range(end_num,start_num-1,-25):
+    #     queue.put(f'{args.checkpoint_dir}/{i}0_AsymKD_new_loss.pth')
+
+    arr = ['61750', '61250', '62000', '60000', '59250', '58250', '56250', '54750', '52750', '52250', '50500', '50250', '50000', '48500', '46250', '45750', '45500', '46000', '43000', '39750', '36000']
+    
+    for i in arr:
+        queue.put(f'{args.checkpoint_dir}/{i}_AsymKD_new_loss.pth')
 
 
     

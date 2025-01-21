@@ -1,0 +1,60 @@
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoints_new_loss_001_smooth/28900_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.933
+delta2_acc : 0.988
+delta3_acc : 0.997
+abs_relative_difference : 0.089
+squared_relative_difference : 0.471
+rmse_linear : 3.689
+rmse_log : 0.125
+log10 : 0.038
+i_rmse : 0.009
+silog_rmse : 12.434
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoints_new_loss_001_smooth/28700_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.93
+delta2_acc : 0.988
+delta3_acc : 0.997
+abs_relative_difference : 0.09
+squared_relative_difference : 0.458
+rmse_linear : 3.671
+rmse_log : 0.125
+log10 : 0.038
+i_rmse : 0.009
+silog_rmse : 12.486
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoints_new_loss_001_smooth/28500_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.929
+delta2_acc : 0.987
+delta3_acc : 0.997
+abs_relative_difference : 0.093
+squared_relative_difference : 0.527
+rmse_linear : 3.845
+rmse_log : 0.129
+log10 : 0.039
+i_rmse : 0.009
+silog_rmse : 12.871
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoints_new_loss_001_smooth/29000_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.928
+delta2_acc : 0.988
+delta3_acc : 0.997
+abs_relative_difference : 0.092
+squared_relative_difference : 0.475
+rmse_linear : 3.714
+rmse_log : 0.128
+log10 : 0.039
+i_rmse : 0.009
+silog_rmse : 12.759
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoints_new_loss_001_smooth/28600_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.93
+delta2_acc : 0.988
+delta3_acc : 0.997
+abs_relative_difference : 0.09
+squared_relative_difference : 0.475
+rmse_linear : 3.701
+rmse_log : 0.127
+log10 : 0.038
+i_rmse : 0.009
+silog_rmse : 12.626
+

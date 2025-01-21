@@ -1,21 +1,19 @@
 import re
 
 # 임계값 설정 tau x
-delta1_threshold_arr = [0.949, 0.981, 0.980, 0.758, 0.981]
-abs_relative_difference_threshold_arr = [0.080,0.043,0.058,0.260,0.043]
+delta1_threshold_arr = [0.94, 0.979, 0.977, 0.758, 0.977]
+abs_relative_difference_threshold_arr = [0.083,0.046,0.065,0.260,0.046]
 
-# 임계값 설정 tau 3
-# delta1_threshold_arr = [0.95, 0.984, 0.983, 0.759, 0.983]
-# abs_relative_difference_threshold_arr = [0.076,0.04,0.052,0.225,0.041]
+# delta1_threshold_arr = [0.937]
+# abs_relative_difference_threshold_arr = [0.083]
 data_checkpoint = []
 data_name_arr = ['kitti_eigen_test','nyu_test', 'eth3d', 'diode', 'scannet']
-print(0.95 >= 0.95 and 0.95 <= 0.95)
 for name, delta1_threshold, abs_relative_difference_threshold, in zip(data_name_arr, delta1_threshold_arr,abs_relative_difference_threshold_arr):
     # 파일 경로 설정 tau x
     # file_path = f'/home/wodon326/project/AsymKD_VIT_Adapter_large/output/{name}/eval_metrics-bfm-ddp.txt'
 
     # 파일 경로 설정 tau 3
-    file_path = f'output/{name}/eval_metrics-bfm_compress-ddp.txt'
+    file_path = f'output/{name}/eval_metrics-bfm_compress-ddp-depth-latent1.txt' 
     # 체크포인트를 저장할 리스트
     checkpoints = []
 
@@ -51,6 +49,7 @@ for name, delta1_threshold, abs_relative_difference_threshold, in zip(data_name_
 
     data_checkpoint.append(checkpoints)
     print(f'{name} : {len(checkpoints)}')
+    # print(checkpoints)
 
 
 common_elements = set(data_checkpoint[0])

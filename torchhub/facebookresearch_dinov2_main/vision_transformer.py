@@ -381,8 +381,13 @@ class DinoVisionTransformer(nn.Module):
         norm=True,
     ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]]]:
         outputs = self._get_intermediate_layers_not_chunked_start_intermediate(x, n)
+        gather_output = []
+        gather_output.append(x)
+        for i_feat in outputs:
+            gather_output.append(i_feat)
+
         if norm:
-            outputs = [self.norm(out) for out in outputs]
+            outputs = [self.norm(out) for out in gather_output]
         # class_tokens = [out[:, 0] for out in outputs]
         # outputs = [out[:, 1 + self.num_register_tokens:] for out in outputs]
         if reshape:
