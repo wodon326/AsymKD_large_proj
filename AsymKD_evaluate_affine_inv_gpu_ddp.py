@@ -46,6 +46,7 @@ import torch.nn.functional as F
 from depth_anything_for_evaluate.dpt import DepthAnything
 from segment_anything import sam_model_registry, SamPredictor
 from AsymKD.dpt_latent1 import AsymKD_compress_latent1
+from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from torch.multiprocessing import Manager
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -219,6 +220,23 @@ def eval(rank, world_size, queue, args):
                 
                 if(rank == 0):
                     print(new_state_dict.keys())
+            elif model_type == "depth_latent1_avg":
+                model = AsymKD_compress_latent1_avg_ver().to(rank)
+                if restore_ckpt is not None:
+                    logging.info("Loading checkpoint...")
+                    checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
+                    model_state_dict = model.state_dict()
+                    new_state_dict = {}
+                    for k, v in checkpoint['model_state_dict'].items():
+                        new_key = k.replace('module.', '')
+                        if new_key in model_state_dict:
+                            new_state_dict[new_key] = v
+            
+                    model_state_dict.update(new_state_dict)
+                    model.load_state_dict(model_state_dict)
+                
+                if(rank == 0):
+                    print(new_state_dict.keys())
 
             # -------------------- Eval metrics --------------------
             metric_funcs = [getattr(metric, _met) for _met in eval_metrics]
@@ -272,6 +290,8 @@ def eval(rank, world_size, queue, args):
                 elif model_type == "KD_bfm":
                     pred = infer(model, rgb_resized)
                 elif model_type == "bfm_compress":
+                    pred = infer(model, rgb_resized)
+                elif model_type == "depth_latent1_avg":
                     pred = infer(model, rgb_resized)
 
 
@@ -340,7 +360,7 @@ def eval(rank, world_size, queue, args):
             print(print_str)
 
 
-            metrics_filename = f"eval_metrics-{model_type}-ddp-depth-latent1.txt"
+            metrics_filename = f"eval_metrics-{model_type}-ddp-depth_latent1_avg_ver.txt"
 
             _save_to = os.path.join(output_dir, metrics_filename)
             with open(_save_to, "a") as f:
@@ -410,12 +430,12 @@ if "__main__" == __name__:
     manager = Manager()
     queue = manager.Queue()    
     # start_num = 25
-    # end_num = 6225
+    # end_num = 9625
         
     # for i in range(end_num,start_num-1,-25):
     #     queue.put(f'{args.checkpoint_dir}/{i}0_AsymKD_new_loss.pth')
 
-    arr = ['61750', '61250', '62000', '60000', '59250', '58250', '56250', '54750', '52750', '52250', '50500', '50250', '50000', '48500', '46250', '45750', '45500', '46000', '43000', '39750', '36000']
+    arr = ['92750', '91250', '89500', '85250', '83250', '82750', '81500', '81250', '80500', '78750', '78500', '78000', '77250', '75250', '74000', '73250', '72500', '71500', '70750', '70250', '69000', '68500', '68000', '67750', '68750', '67000', '66500', '66250', '65000', '64000', '62750', '62250', '61750', '60750', '59250', '55500', '55250', '54750', '53750', '52250', '51750', '50000', '48500', '46250', '36000', '35250', '31250']
     
     for i in arr:
         queue.put(f'{args.checkpoint_dir}/{i}_AsymKD_new_loss.pth')

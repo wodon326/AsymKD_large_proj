@@ -1,8 +1,8 @@
 import re
 
 # 임계값 설정 tau x
-delta1_threshold_arr = [0.94, 0.979, 0.977, 0.758, 0.977]
-abs_relative_difference_threshold_arr = [0.083,0.046,0.065,0.260,0.046]
+delta1_threshold_arr = [0.945, 0.982, 0.982, 0.758, 0.981]
+abs_relative_difference_threshold_arr = [0.080,0.044,0.057,0.260,0.043]
 
 # delta1_threshold_arr = [0.937]
 # abs_relative_difference_threshold_arr = [0.083]
@@ -13,7 +13,7 @@ for name, delta1_threshold, abs_relative_difference_threshold, in zip(data_name_
     # file_path = f'/home/wodon326/project/AsymKD_VIT_Adapter_large/output/{name}/eval_metrics-bfm-ddp.txt'
 
     # 파일 경로 설정 tau 3
-    file_path = f'output/{name}/eval_metrics-bfm_compress-ddp-depth-latent1.txt' 
+    file_path = f'output/{name}/eval_metrics-depth_latent1_avg-ddp-depth_latent1_avg_ver.txt' 
     # 체크포인트를 저장할 리스트
     checkpoints = []
 

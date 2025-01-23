@@ -1,0 +1,564 @@
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/92750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.013
+rmse_linear : 0.139
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.716
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/85250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.14
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.757
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/83250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.139
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.756
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/81250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.139
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.756
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/81500_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.139
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.758
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/91250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.982
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.013
+rmse_linear : 0.137
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.692
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/82750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.013
+rmse_linear : 0.138
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.735
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/89500_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.014
+rmse_linear : 0.141
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.812
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/80500_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.14
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.759
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/78500_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.014
+rmse_linear : 0.142
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.804
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/78750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.982
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.012
+rmse_linear : 0.138
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.709
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/78000_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.98
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.14
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.831
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/77250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.139
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.788
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/75250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.14
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.77
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/74000_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.014
+rmse_linear : 0.142
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.797
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/73250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.14
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.811
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/72500_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.014
+rmse_linear : 0.142
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.824
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/71500_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.013
+rmse_linear : 0.138
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.725
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/70750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.141
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.81
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/69000_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.013
+rmse_linear : 0.139
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.716
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/70250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.012
+rmse_linear : 0.138
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.711
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/68500_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.14
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.785
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/68000_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.012
+rmse_linear : 0.137
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.73
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/67750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.982
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.013
+rmse_linear : 0.138
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.724
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/68750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.14
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.771
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/67000_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.982
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.013
+rmse_linear : 0.138
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.71
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/66500_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.14
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.74
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/66250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.014
+rmse_linear : 0.141
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.816
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/64000_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.138
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.745
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/65000_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.139
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.762
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/62750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.013
+rmse_linear : 0.138
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.72
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/62250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.982
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.013
+rmse_linear : 0.137
+rmse_log : 0.067
+log10 : 0.018
+i_rmse : 0.046
+silog_rmse : 6.695
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/61750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.013
+rmse_linear : 0.139
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.758
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/55500_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.138
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.739
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/59250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.138
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.748
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/60750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.139
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.754
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/55250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.012
+rmse_linear : 0.137
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.726
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/54750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.139
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.767
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/53750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.14
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.783
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/52250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.139
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.769
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/50000_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.138
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.742
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/51750_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.012
+rmse_linear : 0.138
+rmse_log : 0.067
+log10 : 0.019
+i_rmse : 0.046
+silog_rmse : 6.736
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/48500_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.012
+rmse_linear : 0.139
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.772
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/46250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.043
+squared_relative_difference : 0.012
+rmse_linear : 0.137
+rmse_log : 0.067
+log10 : 0.018
+i_rmse : 0.046
+silog_rmse : 6.682
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/36000_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.14
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.808
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/35250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.14
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.831
+
+#######AsymKD /home/wodon326/project/AsymKD_large_proj/checkpoint_depth_latent1_avg_ver/31250_AsymKD_new_loss.pth evaluate result#############
+delta1_acc : 0.981
+delta2_acc : 0.996
+delta3_acc : 0.999
+abs_relative_difference : 0.044
+squared_relative_difference : 0.013
+rmse_linear : 0.138
+rmse_log : 0.068
+log10 : 0.019
+i_rmse : 0.047
+silog_rmse : 6.802
+

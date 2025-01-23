@@ -261,7 +261,7 @@ class AsymKD_compress_latent1(nn.Module):
 
         channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
         compress_feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
-        compress_feat = self.Projects_layers_Self(feat)
+        compress_feat = self.Projects_layers_Self(compress_feat)
 
         features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feat, 3, return_class_token=False)
 
