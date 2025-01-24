@@ -174,7 +174,7 @@ class diffusion_dpt_latent1_avg_ver(nn.Module):
         patch_h, patch_w = h // 14, w // 14
 
         ######## To-Do : student_intermediate_feature를 input으로 diffusion으로 compress_feature 생성 #########
-        
+
         compress_feature = self.feature_generate_diffusion(student_intermediate_feature)
 
         #################################################################################
@@ -191,10 +191,9 @@ class diffusion_dpt_latent1_avg_ver(nn.Module):
     def load_backbone_from_ckpt(
         self,
         student_ckpt: str,
-        teacher_ckpt: str,
         device: torch.device,
     ):
-        assert student_ckpt.endswith('.pth') and teacher_ckpt.endswith('.pth'), 'Please provide the path to the checkpoint file.'
+        assert student_ckpt.endswith('.pth'), 'Please provide the path to the checkpoint file.'
         
         ckpt = torch.load(student_ckpt, map_location=device)
         model_state_dict = self.state_dict()
@@ -204,21 +203,6 @@ class diffusion_dpt_latent1_avg_ver(nn.Module):
         model_state_dict.update(new_state_dict)
         self.load_state_dict(model_state_dict)
 
-        ckpt = torch.load(teacher_ckpt, map_location=device)
-        new_state_dict = {}
-        for k, v in ckpt.items():
-            if('depth_head' in k):
-                continue
-            # 키 매핑 규칙을 정의
-            new_key = k.replace('pretrained', 'teacher_pretrained')  # 'module.'를 제거
-            if new_key in model_state_dict:
-                new_state_dict[new_key] = v
-
-        model_state_dict.update(new_state_dict)
-        self.load_state_dict(model_state_dict)
-
-        for i, (name, param) in enumerate(self.teacher_pretrained.named_parameters()):
-            param.requires_grad = False
 
         for i, (name, param) in enumerate(self.pretrained.named_parameters()):
             param.requires_grad = False
