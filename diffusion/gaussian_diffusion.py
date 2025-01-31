@@ -285,7 +285,7 @@ class GaussianDiffusion(Module):
     def sample(self, cond, batch_size = 16):
         seq_length, channels = self.seq_length, self.channels
         sample_fn = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
-        return sample_fn((batch_size, channels, seq_length), cond)
+        return sample_fn((batch_size, seq_length, channels), cond)
 
     @autocast('cuda', enabled = False)
     def q_sample(self, x_start, t, noise=None):
