@@ -104,7 +104,7 @@ class DiffusionMLP(nn.Module):
         self.mid_channels = mid_channels
 
         self.time_embed = TimestepEmbedder(mid_channels)
-        self.cond_embed = nn.Linear(in_channels, mid_channels)
+        self.cond_embed = nn.Linear(384, mid_channels)
 
 
         self.in_layer = nn.Linear(in_channels, mid_channels)
