@@ -234,6 +234,25 @@ def eval(rank, world_size, queue, args):
             
                     model_state_dict.update(new_state_dict)
                     model.load_state_dict(model_state_dict)
+            elif model_type == "diffusion_compress_latent1_avg_ver":
+                model = AsymKD_compress_latent1_avg_ver().to(rank)
+                assert restore_ckpt is not None, "Please provide the path to the checkpoint file."
+                assert args.student_ckpt is not None, "Please provide the path to the student checkpoint file."
+                ### diffusion model ###
+                logging.info("Loading checkpoint...")
+                diff_model = 
+                checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
+                model_state_dict = model.state_dict()
+                new_state_dict = {}
+                for k, v in checkpoint['model_state_dict'].items():
+                    new_key = k.replace('module.', '')
+                    if new_key in model_state_dict:
+                        new_state_dict[new_key] = v
+        
+                model_state_dict.update(new_state_dict)
+                model.load_state_dict(model_state_dict)
+
+            ### model 추가 ###
                 
                 if(rank == 0):
                     print(new_state_dict.keys())
@@ -293,6 +312,7 @@ def eval(rank, world_size, queue, args):
                     pred = infer(model, rgb_resized)
                 elif model_type == "depth_latent1_avg":
                     pred = infer(model, rgb_resized)
+                ### infer 추가 ###
 
 
                 depth_pred_ts = F.interpolate(pred, size=depth_raw_ts.shape, mode='bilinear', align_corners=False)
@@ -408,6 +428,12 @@ if "__main__" == __name__:
         type=int,
         default=None,
         help="Max operating resolution used for LS alignment",
+    )
+    parser.add_argument(
+        "--student_ckpt",
+        type=str,
+        required=True,
+        help="Path to student checkpoint file.",
     )
     parser.add_argument(
         "--checkpoint_dir",

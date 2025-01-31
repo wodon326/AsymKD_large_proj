@@ -2,6 +2,8 @@ import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from einops import rearrange
 from functools import partial
 from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
@@ -174,8 +176,11 @@ class diffusion_dpt_latent1_avg_ver(nn.Module):
         patch_h, patch_w = h // 14, w // 14
 
         ######## To-Do : student_intermediate_feature를 input으로 diffusion으로 compress_feature 생성 #########
-
-        compress_feature = self.feature_generate_diffusion(student_intermediate_feature)
+        
+        batch_size = student_intermediate_feature.shape[0]
+        cond_feature = rearrange(student_intermediate_feature, 'b n c -> (b n) c')
+        compress_feature = self.feature_generate_diffusion.sample(cond_feature, batch_size=batch_size)
+        compress_feature = rearrange(compress_feature, '(b n) c -> b n c', b=batch_size)
 
         #################################################################################
 
