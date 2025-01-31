@@ -51,6 +51,8 @@ from torch.multiprocessing import Manager
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
+from diffusion import GaussianDiffusion, DiffusionMLP
+
 @torch.no_grad()
 def infer(model, image, seg_image=None, **kwargs):
     """Inference with flip augmentation"""
