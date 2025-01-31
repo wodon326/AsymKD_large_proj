@@ -10,7 +10,7 @@ from random import random
 from torch.amp import autocast
 from torch.nn import Module
 from tqdm.auto import tqdm
-from einops import reduce, rearrange
+from einops import reduce, rearrange, repeat
 
 
 # constants
@@ -327,9 +327,10 @@ class GaussianDiffusion(Module):
     def forward(self, target, cond, *args, **kwargs):
         b, n, c, device, seq_length, = *target.shape, target.device, self.seq_length
         assert n == seq_length, f'seq length must be {seq_length}'
+        t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
+        t = repeat(t, "b -> (b n)", n=n) 
         target = rearrange(target, "b n c -> (b n) c")  # target.view(b * n, c)
         cond = rearrange(cond, "b n c -> (b n) c") # cond.view(b * n, c)
-        t = torch.randint(0, self.num_timesteps, (b * n,), device=device).long()
 
         target = self.normalize(target)
         return self.p_losses(target, t, cond, *args, **kwargs)
