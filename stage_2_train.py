@@ -282,7 +282,7 @@ def train(rank, world_size, args):
         torch.cuda.empty_cache()
 
         # init scalars
-        save_step = 250
+        save_step = 2500
         total_steps = 0
         epoch = 0
 
@@ -304,13 +304,13 @@ def train(rank, world_size, args):
             in_channels=384,
             out_channels=384,
             mid_channels=1024,
-            num_resblks=12
+            num_resblks=6
         ).to(rank)
         model.initialize_weights()
         model = GaussianDiffusion(
             model,
             seq_length=37*37,
-            objective="pred_x0",
+            objective="pred_noise",
         ).to(rank)
 
         #model.module.freeze_bn() # We keep BatchNorm frozen
@@ -347,6 +347,9 @@ def train(rank, world_size, args):
                 with torch.no_grad():
                     flow_predictions, teach_feat, stud_feat = AsymKD_Compress.forward_with_inter_feat(depth_image)
                     knowledge_feat = teach_feat - stud_feat # shape: B, hw, 384
+                    # knowledge_feat = (knowledge_feat - knowledge_feat.mean(dim=-1,keepdim=True)) / knowledge_feat.std(dim=-1,keepdim=True)
+                    # knowledge_feat = rearrange(knowledge_feat, 'b n (i k) -> b n i k', i=12)
+                    # knowledge_feat = knowledge_feat[:, :, 0, :] # shape: B, hw, 32
 
                 assert model.training
                 loss = model(target=knowledge_feat, cond=stud_feat)
