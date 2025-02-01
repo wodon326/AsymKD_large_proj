@@ -310,7 +310,7 @@ def train(rank, world_size, args):
         model = GaussianDiffusion(
             model,
             seq_length=37*37,
-            objective="pred_noise",
+            objective="pred_v",
         ).to(rank)
 
         #model.module.freeze_bn() # We keep BatchNorm frozen
