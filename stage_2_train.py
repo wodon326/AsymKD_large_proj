@@ -350,6 +350,16 @@ def train(rank, world_size, args):
                     # knowledge_feat = (knowledge_feat - knowledge_feat.mean(dim=-1,keepdim=True)) / knowledge_feat.std(dim=-1,keepdim=True)
                     # knowledge_feat = rearrange(knowledge_feat, 'b n (i k) -> b n i k', i=12)
                     # knowledge_feat = knowledge_feat[:, :, 0, :] # shape: B, hw, 32
+                    print(f"teach_feat norm: {teach_feat.norm(dim=-1).mean()}")
+                    print(f"teach_feat mean: {teach_feat.mean(dim=-1).mean()}")
+                    print(f"teach_feat std: {teach_feat.std(dim=-1).mean()}")
+                    print(f"stud_feat norm: {stud_feat.norm(dim=-1).mean()}")
+                    print(f"stud_feat std: {stud_feat.mean(dim=-1).mean()}")
+                    print(f"stud_feat std: {stud_feat.std(dim=-1).mean()}")
+                    print(f"knowledge_feat norm: {knowledge_feat.norm(dim=-1).mean()}")
+                    print(f"knowledge_feat mean: {knowledge_feat.mean()}")
+                    print(f"knowledge_feat std: {knowledge_feat.std(dim=-1).mean()}")
+                    assert 0
 
                 assert model.training
                 loss = model(target=knowledge_feat, cond=stud_feat)
@@ -386,7 +396,7 @@ def train(rank, world_size, args):
                         logger.writer.add_image('Prediction', pred.astype(np.uint8), total_steps)
 
                     if total_steps % save_step == save_step-1:
-                        save_path = Path(f"checkpoint_depth_latent1_avg_ver_stage_2/{total_steps + 1}_{args.name}.pth")
+                        save_path = Path(f"checkpoint_v_depth_latent1_avg_ver_stage_2/{total_steps + 1}_{args.name}.pth")
                         logging.info(f"Saving file {save_path.absolute()}")
                         state.save(save_path)
 
@@ -399,7 +409,7 @@ def train(rank, world_size, args):
 
         print("FINISHED TRAINING")
         logger.close()
-        state.save(f"checkpoint_depth_latent1_avg_ver/{args.name}.pth")
+        state.save(f"checkpoint_v_depth_latent1_avg_ver_stage_2/{args.name}.pth")
         return None
     finally:
         cleanup()
@@ -447,6 +457,6 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
-    Path("checkpoint_depth_latent1_avg_ver_stage_2").mkdir(exist_ok=True, parents=True)
+    Path("checkpoint_v_depth_latent1_avg_ver_stage_2").mkdir(exist_ok=True, parents=True)
     world_size = torch.cuda.device_count()
     mp.spawn(train, args=(world_size,args,), nprocs=world_size, join=True)
