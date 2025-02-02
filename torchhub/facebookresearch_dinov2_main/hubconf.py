@@ -73,6 +73,12 @@ def dinov2_vits14(*, pretrained: bool = True, weights: Union[Weights, str] = Wei
     """
     return _make_dinov2_model(arch_name="vit_small", pretrained=pretrained, weights=weights, **kwargs)
 
+def dinov2_vits_lora14(*, pretrained: bool = True, weights: Union[Weights, str] = Weights.LVD142M, **kwargs):
+    """
+    DINOv2 ViT-S/14 model (optionally) pretrained on the LVD-142M dataset.
+    """
+    return _make_dinov2_model(arch_name="vit_small_lora", pretrained=pretrained, weights=weights, **kwargs)
+
 
 def dinov2_vitb14(*, pretrained: bool = True, weights: Union[Weights, str] = Weights.LVD142M, **kwargs):
     """

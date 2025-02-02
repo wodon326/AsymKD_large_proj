@@ -1,7 +1,7 @@
 set -e
 set -x
 
-python AsymKD_evaluate_affine_inv_gpu_ddp.py \
+python AsymKD_evaluate_ddp_cache_ver.py \
     --model kd_latent1_avg \
     --base_data_dir ~/data/AsymKD \
     --dataset_config config/data_kitti_eigen_test.yaml \

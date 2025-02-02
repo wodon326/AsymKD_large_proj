@@ -8,5 +8,5 @@ from .dino_head import DINOHead
 from .mlp import Mlp
 from .patch_embed import PatchEmbed
 from .swiglu_ffn import SwiGLUFFN, SwiGLUFFNFused
-from .block import NestedTensorBlock
-from .attention import MemEffAttention
+from .block import NestedTensorBlock, NestedTensorBlock_lora
+from .attention import MemEffAttention, MemEffAttention_Lora
