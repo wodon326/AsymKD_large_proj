@@ -306,7 +306,6 @@ def train(rank, world_size, args):
             mid_channels=1024,
             num_resblks=6
         ).to(rank)
-        model.initialize_weights()
         model = GaussianDiffusion(
             model,
             seq_length=37*37,

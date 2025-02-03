@@ -141,9 +141,9 @@ class DPTHead(nn.Module):
         return out
         
         
-class diffusion_dpt_latent1_avg_ver(nn.Module):
+class Diffusion_dpt_latent1_avg_ver(nn.Module):
     def __init__(self, feature_generate_diffusion ,encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(diffusion_dpt_latent1_avg_ver, self).__init__()
+        super(Diffusion_dpt_latent1_avg_ver, self).__init__()
         
         assert encoder in ['vits', 'vitb', 'vitl']
         print('diffusion_dpt_latent1_avg_ver')
