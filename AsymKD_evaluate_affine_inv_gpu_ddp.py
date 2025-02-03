@@ -237,24 +237,30 @@ def eval(rank, world_size, queue, args):
                     model_state_dict.update(new_state_dict)
                     model.load_state_dict(model_state_dict)
             elif model_type == "diffusion_compress_latent1_avg_ver":
-                model = AsymKD_compress_latent1_avg_ver().to(rank)
                 assert restore_ckpt is not None, "Please provide the path to the checkpoint file."
                 assert args.student_ckpt is not None, "Please provide the path to the student checkpoint file."
                 ### diffusion model ###
                 logging.info("Loading checkpoint...")
-                diff_model = 
-                checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
-                model_state_dict = model.state_dict()
-                new_state_dict = {}
-                for k, v in checkpoint['model_state_dict'].items():
-                    new_key = k.replace('module.', '')
-                    if new_key in model_state_dict:
-                        new_state_dict[new_key] = v
-        
-                model_state_dict.update(new_state_dict)
-                model.load_state_dict(model_state_dict)
-
-            ### model 추가 ###
+                diff_model = DiffusionMLP(
+                    in_channels=384,
+                    out_channels=384,
+                    mid_channels=1024,
+                    num_resblks=6
+                ).to(rank)
+                diff_model = GaussianDiffusion(
+                    diff_model,
+                    seq_length=37*37,
+                    objective="pred_v",
+                ).to(rank)
+                diff_ckpt = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
+                diff_ckpt = {k.replace('module.', ''): v for k, v in diff_ckpt['model_state_dict'].items()}
+                diff_model.load_state_dict(diff_ckpt['model_state_dict'], strict=True)
+                
+                ### compress model ###
+                model = Diffusion_dpt_latent1_avg_ver(feature_generate_diffusion=diff_model).to(rank)
+                model_ckpt = torch.load(args.student_ckpt, map_location=torch.device('cuda', rank))
+                new_state_dict = {k.replace('module.', ''): v for k, v in model_ckpt['model_state_dict'].items() if k.replace('module.', '') in model_state_dict}
+                model.load_state_dict(model_state_dict, strict=True)
                 
                 if(rank == 0):
                     print(new_state_dict.keys())
