@@ -349,16 +349,16 @@ def train(rank, world_size, args):
                     # knowledge_feat = (knowledge_feat - knowledge_feat.mean(dim=-1,keepdim=True)) / knowledge_feat.std(dim=-1,keepdim=True)
                     # knowledge_feat = rearrange(knowledge_feat, 'b n (i k) -> b n i k', i=12)
                     # knowledge_feat = knowledge_feat[:, :, 0, :] # shape: B, hw, 32
-                    print(f"teach_feat norm: {teach_feat.norm(dim=-1).mean()}")
-                    print(f"teach_feat mean: {teach_feat.mean(dim=-1).mean()}")
-                    print(f"teach_feat std: {teach_feat.std(dim=-1).mean()}")
-                    print(f"stud_feat norm: {stud_feat.norm(dim=-1).mean()}")
-                    print(f"stud_feat std: {stud_feat.mean(dim=-1).mean()}")
-                    print(f"stud_feat std: {stud_feat.std(dim=-1).mean()}")
-                    print(f"knowledge_feat norm: {knowledge_feat.norm(dim=-1).mean()}")
-                    print(f"knowledge_feat mean: {knowledge_feat.mean()}")
-                    print(f"knowledge_feat std: {knowledge_feat.std(dim=-1).mean()}")
-                    assert 0
+                    # print(f"teach_feat norm: {teach_feat.norm(dim=-1).mean()}")
+                    # print(f"teach_feat mean: {teach_feat.mean(dim=-1).mean()}")
+                    # print(f"teach_feat std: {teach_feat.std(dim=-1).mean()}")
+                    # print(f"stud_feat norm: {stud_feat.norm(dim=-1).mean()}")
+                    # print(f"stud_feat std: {stud_feat.mean(dim=-1).mean()}")
+                    # print(f"stud_feat std: {stud_feat.std(dim=-1).mean()}")
+                    # print(f"knowledge_feat norm: {knowledge_feat.norm(dim=-1).mean()}")
+                    # print(f"knowledge_feat mean: {knowledge_feat.mean()}")
+                    # print(f"knowledge_feat std: {knowledge_feat.std(dim=-1).mean()}")
+                    # assert 0
 
                 assert model.training
                 loss = model(target=knowledge_feat, cond=stud_feat)

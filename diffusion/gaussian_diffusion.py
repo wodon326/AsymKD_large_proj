@@ -283,9 +283,9 @@ class GaussianDiffusion(Module):
 
     @torch.no_grad()
     def sample(self, cond, batch_size = 16):
-        seq_length, channels = self.seq_length, self.channels
+        seq_length, channels = cond.shape[0], self.channels
         sample_fn = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
-        return sample_fn((batch_size, seq_length, channels), cond)
+        return sample_fn((batch_size * seq_length, channels), cond)
 
     @autocast('cuda', enabled = False)
     def q_sample(self, x_start, t, noise=None):

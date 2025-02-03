@@ -139,8 +139,6 @@ class DiffusionMLP(nn.Module):
         nn.init.constant_(self.out_layer.linear.weight, 0)
         nn.init.constant_(self.out_layer.linear.bias, 0)
 
-    
-
     def forward(self, x, t, c):
         assert x.dim() == 2, f"Input shape should be (B*L, in_channels), got {x.shape}"
         assert c.dim() == 2, f"Condition shape should be (B*L, in_channels), got {c.shape}"
