@@ -179,8 +179,9 @@ class Diffusion_dpt_latent1_avg_ver(nn.Module):
         
         batch_size = student_intermediate_feature.shape[0]
         cond_feature = rearrange(student_intermediate_feature, 'b n c -> (b n) c')
-        compress_feature = self.feature_generate_diffusion.sample(cond_feature, batch_size=batch_size)
-        compress_feature = rearrange(compress_feature, '(b n) c -> b n c', b=batch_size)
+        knowledge_feature = self.feature_generate_diffusion.sample(cond_feature, batch_size=batch_size)
+        knowledge_feature = rearrange(knowledge_feature, '(b n) c -> b n c', b=batch_size)
+        compress_feature = student_intermediate_feature + knowledge_feature
 
         #################################################################################
 
