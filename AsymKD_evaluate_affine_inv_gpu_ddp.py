@@ -47,6 +47,8 @@ from depth_anything_for_evaluate.dpt import DepthAnything
 from segment_anything import sam_model_registry, SamPredictor
 from AsymKD.dpt_latent1 import AsymKD_compress_latent1
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
+from AsymKD.diffusion_dpt_latent1_avg_ver import Diffusion_dpt_latent1_avg_ver
+from diffusion import DiffusionMLP, GaussianDiffusion
 from torch.multiprocessing import Manager
 import torch.distributed as dist
 import torch.multiprocessing as mp
