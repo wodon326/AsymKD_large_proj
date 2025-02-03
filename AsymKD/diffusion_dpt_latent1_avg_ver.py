@@ -183,6 +183,17 @@ class Diffusion_dpt_latent1_avg_ver(nn.Module):
         knowledge_feature = rearrange(knowledge_feature, '(b n) c -> b n c', b=batch_size)
         compress_feature = student_intermediate_feature + knowledge_feature
 
+        # print(f"knowledge_feature norm : {knowledge_feature.norm(dim=-1).mean()}")
+        # print(f"knowledge_feature mean : {knowledge_feature.mean(dim=-1).mean()}")
+        # print(f"knowledge_feature std : {knowledge_feature.std(dim=-1).mean()}")
+        # print(f"student_intermediate_feature norm : {student_intermediate_feature.norm(dim=-1).mean()}")
+        # print(f"student_intermediate_feature mean : {student_intermediate_feature.mean(dim=-1).mean()}")
+        # print(f"student_intermediate_feature std : {student_intermediate_feature.std(dim=-1).mean()}")
+        # print(f"compress_feature norm : {compress_feature.norm(dim=-1).mean()}")
+        # print(f"compress_feature mean : {compress_feature.mean(dim=-1).mean()}")
+        # print(f"compress_feature std : {compress_feature.std(dim=-1).mean()}")
+
+
         #################################################################################
 
         features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feature, 3, return_class_token=False)
