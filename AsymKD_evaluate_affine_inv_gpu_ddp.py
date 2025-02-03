@@ -254,7 +254,7 @@ def eval(rank, world_size, queue, args):
                 ).to(rank)
                 diff_ckpt = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
                 diff_ckpt = {k.replace('module.', ''): v for k, v in diff_ckpt['model_state_dict'].items()}
-                diff_model.load_state_dict(diff_ckpt['model_state_dict'], strict=True)
+                diff_model.load_state_dict(diff_ckpt, strict=True)
                 
                 ### compress model ###
                 model = Diffusion_dpt_latent1_avg_ver(feature_generate_diffusion=diff_model).to(rank)
