@@ -259,8 +259,8 @@ def eval(rank, world_size, queue, args):
                 ### compress model ###
                 model = Diffusion_dpt_latent1_avg_ver(feature_generate_diffusion=diff_model).to(rank)
                 model_ckpt = torch.load(args.student_ckpt, map_location=torch.device('cuda', rank))
-                new_state_dict = {k.replace('module.', ''): v for k, v in model_ckpt['model_state_dict'].items() if k.replace('module.', '') in model_state_dict}
-                model.load_state_dict(model_state_dict, strict=True)
+                new_state_dict = {k.replace('module.', ''): v for k, v in model_ckpt['model_state_dict'].items()}
+                model.load_state_dict(new_state_dict, strict=False)
                 
                 if(rank == 0):
                     print(new_state_dict.keys())
