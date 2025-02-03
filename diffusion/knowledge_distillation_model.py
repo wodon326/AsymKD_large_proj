@@ -113,7 +113,8 @@ class DiffusionMLP(nn.Module):
 
         for _ in range(num_resblks):
             self.res_blocks.append(ResBlock(mid_channels))
-    
+        
+        self.initialize_weights()
 
     def initialize_weights(self):
         def _basic_init(module):
