@@ -6,7 +6,6 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 
-
 from torch.utils.tensorboard import SummaryWriter
 import torch
 import torch.optim as optim
@@ -14,7 +13,8 @@ import torch.optim as optim
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
-from AsymKD.dpt_latent1_student_teacher_avg_ver import AsymKD_compress_latent1_student_teacher_avg_ver
+from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
+from AsymKD.kd_naive_dpt_latent1_avg_ver import AsymKD_kd_naive_latent1_avg_ver
 from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss
 
 import core.AsymKD_datasets as datasets
@@ -272,28 +272,43 @@ def train(rank, world_size, args):
         total_steps = 0
         epoch = 0
 
+        # loss parameter
+        alpha = 0
+
+
         # load model
-        AsymKD_Compress = AsymKD_compress_latent1_student_teacher_avg_ver().to(rank)
-        student_ckpt = 'depth_anything_vits14.pth'
-        teacher_ckpt = 'depth_anything_vitl14.pth'
+        AsymKD_Compress = AsymKD_compress_latent1_avg_ver().to(rank)
+        AsymKD_Compress.eval()
+        ckpt = args.ckpt
+        new_state_dict = AsymKD_Compress.load_ckpt(ckpt, device=torch.device('cuda', rank))
         if rank == 0:
-            logging.info(f"loading backbones from {student_ckpt} and {teacher_ckpt}")
-        AsymKD_Compress.load_backbone_from_ckpt(student_ckpt, teacher_ckpt, device=torch.device('cuda', rank))
-        AsymKD_Compress = torch.nn.SyncBatchNorm.convert_sync_batchnorm(AsymKD_Compress)
-        #model.module.freeze_bn() # We keep BatchNorm frozen
-        model = DDP(AsymKD_Compress, device_ids=[rank])
-        model.train()
+            logging.info(f"loading backbones from {ckpt}")
+            print('AsymKD_Compress : ', new_state_dict.keys())
+
+        # load model
+        student_model = AsymKD_kd_naive_latent1_avg_ver().to(rank)
+        new_state_dict = student_model.load_ckpt(ckpt, device=torch.device('cuda', rank))
+        if rank == 0:
+            logging.info(f"loading backbones from {ckpt}")
+            print('student_model : ', new_state_dict.keys())
+
+        if rank == 0:
+            for n, p in student_model.named_parameters():
+                print(f'{n} : {p.requires_grad}')
+        student_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(student_model)
+        student_model = DDP(student_model, device_ids=[rank])
+        student_model.train()
         
         if rank == 0:
-            logging.info(f"Parameter Count: {count_parameters(model)}")
+            logging.info(f"Parameter Count: {count_parameters(student_model)}")
             logging.info("AsymKD_VIT Train")
         
         # load others
         train_loader = datasets.fetch_dataloader(args,rank, world_size)
-        optimizer, scheduler = fetch_optimizer(args, model)
+        optimizer, scheduler = fetch_optimizer(args, student_model)
         scaler = GradScaler(enabled=args.mixed_precision)
-        logger = Logger(model, scheduler)
-        state = State(model, optimizer, scheduler)
+        logger = Logger(student_model, scheduler)
+        state = State(student_model, optimizer, scheduler)
 
         # load loss
         SSILoss = ScaleAndShiftInvariantLoss()
@@ -311,9 +326,12 @@ def train(rank, world_size, args):
                 #     continue
                 optimizer.zero_grad()
                 depth_image, flow, valid = [x.cuda() for x in data_blob]
-                assert model.training
-                flow_predictions = model(depth_image)
-                assert model.training
+                assert student_model.training
+                flow_predictions, student_feature = student_model(depth_image)
+                assert student_model.training
+
+                with torch.no_grad():
+                    teacher_prediction, teacher_feature = AsymKD_Compress.forward_with_normalize_compress_feat(depth_image)
                 # loss, metrics = sequence_loss(flow_predictions, flow, valid)
 
                 try:
@@ -322,6 +340,7 @@ def train(rank, world_size, args):
                     loss = 0.85 * l_si
                     l_grad = grad_loss(scaled_pred, flow, mask=valid.bool().unsqueeze(1))
                     loss = loss + 0.001 * l_grad
+
                 except Exception as e:
                     loss, _ = sequence_loss(flow_predictions, flow, valid)
 
@@ -330,9 +349,12 @@ def train(rank, world_size, args):
                     a.write(str(e)+'\n')
                     a.close()
                 
+                feature_loss = F.mse_loss(student_feature, teacher_feature)
+                loss = alpha * loss + (1-alpha) * feature_loss
+
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                torch.nn.utils.clip_grad_norm_(student_model.parameters(), 1.0)
 
                 scaler.step(optimizer)
                 scheduler.step()
@@ -340,6 +362,7 @@ def train(rank, world_size, args):
 
                 if rank == 0:
                     logger.writer.add_scalar("live_loss", l_si.item(), total_steps)
+                    logger.writer.add_scalar("feature_loss", feature_loss.item(), total_steps)
                     logger.writer.add_scalar("gradient_matching_loss", l_grad.item(), total_steps)
                     logger.writer.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], total_steps)
                     _ , metrics = sequence_loss(flow_predictions, flow, valid)
@@ -355,10 +378,14 @@ def train(rank, world_size, args):
             
                         pred = flow_predictions[0].cpu().detach().numpy()
                         pred = ((pred - np.min(pred)) / (np.max(pred) - np.min(pred))) * 255
+
+                        teacher_pred = teacher_prediction[0].cpu().detach().numpy()
+                        teacher_pred = ((teacher_pred - np.min(teacher_pred)) / (np.max(teacher_pred) - np.min(teacher_pred))) * 255
             
                         logger.writer.add_image('RGB', rgb.astype(np.uint8), total_steps)
                         logger.writer.add_image('GT', gt.astype(np.uint8), total_steps)
-                        logger.writer.add_image('Prediction', pred.astype(np.uint8), total_steps)
+                        logger.writer.add_image('Prediction/student', pred.astype(np.uint8), total_steps)
+                        logger.writer.add_image('Prediction/teacher', teacher_pred.astype(np.uint8), total_steps)
 
                     if total_steps % save_step == save_step-1:
                         save_path = Path(f"checkpoint_depth_latent1_avg_ver/{total_steps + 1}_{args.name}.pth")
@@ -385,7 +412,8 @@ if __name__ == '__main__':
     parser.add_argument('--restore_ckpt', help="restore checkpoint")
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--epoch', type=int, default=3, help="length of training schedule.")
-
+    parser.add_argument('--ckpt', type=str, help="load_ckpt")
+   
     # Training parameters
     parser.add_argument('--batch_size', type=int, default=6, help="batch size used during training.")
     parser.add_argument('--train_datasets', nargs='+', default=['tartan_air'], help="training datasets.")

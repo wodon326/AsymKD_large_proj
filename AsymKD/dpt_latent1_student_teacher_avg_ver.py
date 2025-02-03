@@ -139,12 +139,12 @@ class DPTHead(nn.Module):
         return out
         
         
-class AsymKD_compress_latent1_avg_ver(nn.Module):
+class AsymKD_compress_latent1_student_teacher_avg_ver(nn.Module):
     def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(AsymKD_compress_latent1_avg_ver, self).__init__()
+        super(AsymKD_compress_latent1_student_teacher_avg_ver, self).__init__()
         
         assert encoder in ['vits', 'vitb', 'vitl']
-        print('AsymKD_compress_latent1_avg_ver')
+        print('AsymKD_compress_latent1_student_teacher_avg_ver')
         self.teacher_encoder = 'vitl'
         
         # in case the Internet connection is not stable, please load the DINOv2 locally
@@ -191,7 +191,8 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
                 init_values=None,
             )
         
-        self.Projects_layers_Cross = CrossAttentionBlock(
+        self.Projects_layers_Cross =  nn.ModuleList([
+            CrossAttentionBlock(
                 dim=in_channels_384,
                 num_heads=6,
                 mlp_ratio=4,
@@ -204,8 +205,10 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
                 ffn_layer=Mlp,
                 init_values=None,
             )
+         for _ in range(4)])
 
-        self.Projects_layers_Self = Block(
+        self.Projects_layers_Self =  nn.ModuleList([
+            Block(
                 dim=in_channels_384,
                 num_heads=6,
                 mlp_ratio=4,
@@ -218,101 +221,41 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
                 ffn_layer=Mlp,
                 init_values=None,
             )
+         for _ in range(4)])
         
 
         self.depth_head = DPTHead(1, dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
         for i, (name, param) in enumerate(self.depth_head.named_parameters()):
             param.requires_grad = False
-        
-        self.pretrained.unfreeze_last_n_blocks(n = 3)
 
         self.nomalize = NormalizeLayer()
 
     def forward(self, x):
         h, w = x.shape[-2:]
 
-        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
-        teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
+        teacher_avg_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False)
+        teacher_avg_feature = torch.stack(teacher_avg_feature).mean(dim=0)
         
-        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
+        student_features = self.pretrained.get_intermediate_layers(x, 4, return_class_token=False)
+        student_avg_feature = torch.stack(student_features).mean(dim=0)
         patch_h, patch_w = h // 14, w // 14
 
-        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
-        feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
-        feat = self.Projects_layers_Self(feat)
+        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_avg_feature,teacher_avg_feature)
+        
+        proj_feature = []
+        for student_feat, CrossAtten, SelfAttn in zip(student_features, self.Projects_layers_Cross, self.Projects_layers_Self):
+            feat = CrossAtten(student_feat,channel_proj_feat)
+            feat = SelfAttn(feat)
+            proj_feature.append(feat)
 
-        features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 3, return_class_token=False)
 
-        depth = self.depth_head(features, patch_h, patch_w)
+        depth = self.depth_head(proj_feature, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
         depth = F.relu(depth)
         depth = self.nomalize(depth) if self.training else depth
 
         return depth
     
-    def forward_with_inter_feat(self, x):
-        h, w = x.shape[-2:]
-
-        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
-        teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
-        
-        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
-        patch_h, patch_w = h // 14, w // 14
-
-        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
-        compress_feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
-        compress_feat = self.Projects_layers_Self(compress_feat)
-
-        features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feat, 3, return_class_token=False)
-
-        depth = self.depth_head(features, patch_h, patch_w)
-        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
-        depth = F.relu(depth)
-        depth = self.nomalize(depth) if self.training else depth
-
-        return depth, compress_feat, student_intermediate_feature
-    
-    
-    def forward_with_normalize_compress_feat(self, x):
-        h, w = x.shape[-2:]
-
-        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
-        teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
-        
-        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
-        patch_h, patch_w = h // 14, w // 14
-
-        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
-        compress_feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
-        compress_feat = self.Projects_layers_Self(compress_feat)
-
-        features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feat, 3, return_class_token=False)
-
-        depth = self.depth_head(features, patch_h, patch_w)
-        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
-        depth = F.relu(depth)
-        depth = self.nomalize(depth) if self.training else depth
-        
-        return depth, features[0]
-
-
-    def feature_visualize(self, x, reshape_to_image = True):
-        h, w = x.shape[-2:]
-
-        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
-        teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
-        
-        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
-        patch_h, patch_w = h // 14, w // 14
-
-        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
-        compress_feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
-        compress_feat = self.Projects_layers_Self(compress_feat)
-        if(reshape_to_image):
-            student_intermediate_feature = student_intermediate_feature.permute(0, 2, 1).reshape((student_intermediate_feature.shape[0], student_intermediate_feature.shape[-1], patch_h, patch_w))
-            compress_feat = compress_feat.permute(0, 2, 1).reshape((compress_feat.shape[0], compress_feat.shape[-1], patch_h, patch_w))
-        
-        return student_intermediate_feature, compress_feat
     
     def load_backbone_from_ckpt(
         self,
@@ -350,29 +293,6 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
             param.requires_grad = False
         
         return None
-
-    
-    def load_ckpt(
-        self,
-        ckpt: str,
-        device: torch.device
-    ):
-        assert ckpt.endswith('.pth'), 'Please provide the path to the checkpoint file.'
-        
-        ckpt = torch.load(ckpt, map_location=device)
-        ckpt = ckpt['model_state_dict']
-        model_state_dict = self.state_dict()
-        new_state_dict = {}
-        for k, v in ckpt.items():
-            # 키 매핑 규칙을 정의
-            new_key = k.replace('module.', '')  # 'module.'를 제거
-            if new_key in model_state_dict:
-                new_state_dict[new_key] = v
-
-        model_state_dict.update(new_state_dict)
-        self.load_state_dict(model_state_dict)
-    
-        return new_state_dict
 
 class NormalizeLayer(nn.Module):
     def __init__(self):

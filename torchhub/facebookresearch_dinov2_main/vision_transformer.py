@@ -239,6 +239,11 @@ class DinoVisionTransformer(nn.Module):
                 # print(f'unfreeze {name}')
         for i, (name, param) in enumerate(self.norm.named_parameters()):
             param.requires_grad = True
+
+    def unfreeze_front_n_blocks(self, n):
+        for blk in enumerate(self.blocks[:n]):
+            for i, (name, param) in enumerate(blk[1].named_parameters()):
+                param.requires_grad = True
         
 
     def forward_features_list(self, x_list, masks_list):
