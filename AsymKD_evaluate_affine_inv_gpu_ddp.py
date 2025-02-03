@@ -322,7 +322,8 @@ def eval(rank, world_size, queue, args):
                     pred = infer(model, rgb_resized)
                 elif model_type == "depth_latent1_avg":
                     pred = infer(model, rgb_resized)
-                ### infer 추가 ###
+                elif model_type == "diffusion_compress_latent1_avg_ver":
+                    pred = infer(model, rgb_resized)
 
 
                 depth_pred_ts = F.interpolate(pred, size=depth_raw_ts.shape, mode='bilinear', align_corners=False)
