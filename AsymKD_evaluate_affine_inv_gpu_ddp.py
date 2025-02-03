@@ -262,8 +262,8 @@ def eval(rank, world_size, queue, args):
                 new_state_dict = {k.replace('module.', ''): v for k, v in model_ckpt['model_state_dict'].items()}
                 model.load_state_dict(new_state_dict, strict=False)
                 
-                if(rank == 0):
-                    print(new_state_dict.keys())
+                # if(rank == 0):
+                #     print(new_state_dict.keys())
 
             # -------------------- Eval metrics --------------------
             metric_funcs = [getattr(metric, _met) for _met in eval_metrics]
