@@ -20,6 +20,7 @@ from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss
 import core.AsymKD_datasets as datasets
 import gc
 
+from dataset.util.alignment_gpu import align_depth_least_square
 import torch.nn.functional as F
 try:
     from torch.cuda.amp import GradScaler
@@ -84,8 +85,14 @@ def compute_errors(flow_gt, flow_preds, valid_arr):
 
     for gt, pred, valid in zip(flow_gt, flow_preds, valid_arr):
 
+        disparity_pred, scale, shift = align_depth_least_square(
+                        gt_arr=gt,
+                        pred_arr=pred,
+                        valid_mask_arr=valid,
+                        return_scale_shift=True,
+                    )
         gt = gt.squeeze().cpu().numpy()
-        pred = pred.clone().squeeze().cpu().detach().numpy()
+        pred = disparity_pred.clone().squeeze().cpu().detach().numpy()
         valid = valid.squeeze().cpu()        
         pred[pred < min_depth_eval] = min_depth_eval
         pred[pred > max_depth_eval] = max_depth_eval
@@ -307,7 +314,8 @@ def train(rank, world_size, args):
         train_loader = datasets.fetch_dataloader(args,rank, world_size)
         optimizer, scheduler = fetch_optimizer(args, student_model)
         scaler = GradScaler(enabled=args.mixed_precision)
-        logger = Logger(student_model, scheduler)
+        if rank == 0:
+            logger = Logger(student_model, scheduler)
         state = State(student_model, optimizer, scheduler)
 
         # load loss
