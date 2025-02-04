@@ -48,9 +48,13 @@ from segment_anything import sam_model_registry, SamPredictor
 from AsymKD.dpt_latent1 import AsymKD_compress_latent1
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from AsymKD.kd_adapter_dpt_latent1_avg_ver import AsymKD_kd_lora_latent1_avg_ver
+from AsymKD.diffusion_dpt_latent1_avg_ver import Diffusion_dpt_latent1_avg_ver
+from diffusion import DiffusionMLP, GaussianDiffusion
 from torch.multiprocessing import Manager
 import torch.distributed as dist
 import torch.multiprocessing as mp
+
+from diffusion import GaussianDiffusion, DiffusionMLP
 
 @torch.no_grad()
 def infer(model, image, seg_image=None, **kwargs):
@@ -235,9 +239,34 @@ def eval(rank, world_size, queue, args):
             
                     model_state_dict.update(new_state_dict)
                     model.load_state_dict(model_state_dict)
+            elif model_type == "diffusion_compress_latent1_avg_ver":
+                assert restore_ckpt is not None, "Please provide the path to the checkpoint file."
+                assert args.student_ckpt is not None, "Please provide the path to the student checkpoint file."
+                ### diffusion model ###
+                logging.info("Loading checkpoint...")
+                diff_model = DiffusionMLP(
+                    in_channels=384,
+                    out_channels=384,
+                    mid_channels=1024,
+                    num_resblks=6
+                ).to(rank)
+                diff_model = GaussianDiffusion(
+                    diff_model,
+                    seq_length=37*37,
+                    objective="pred_v",
+                ).to(rank)
+                diff_ckpt = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
+                diff_ckpt = {k.replace('module.', ''): v for k, v in diff_ckpt['model_state_dict'].items()}
+                diff_model.load_state_dict(diff_ckpt, strict=True)
                 
-                if(rank == 0):
-                    print(new_state_dict.keys())
+                ### compress model ###
+                model = Diffusion_dpt_latent1_avg_ver(feature_generate_diffusion=diff_model).to(rank)
+                model_ckpt = torch.load(args.student_ckpt, map_location=torch.device('cuda', rank))
+                new_state_dict = {k.replace('module.', ''): v for k, v in model_ckpt['model_state_dict'].items()}
+                model.load_state_dict(new_state_dict, strict=False)
+                
+                # if(rank == 0):
+                #     print(new_state_dict.keys())
 
             elif model_type == "kd_latent1_avg":
                 model = AsymKD_kd_lora_latent1_avg_ver().to(rank)
@@ -313,6 +342,8 @@ def eval(rank, world_size, queue, args):
                 elif model_type == "depth_latent1_avg":
                     pred = infer(model, rgb_resized)
                 elif model_type == "kd_latent1_avg":
+                    pred = infer(model, rgb_resized)
+                elif model_type == "diffusion_compress_latent1_avg_ver":
                     pred = infer(model, rgb_resized)
 
 
@@ -429,6 +460,12 @@ if "__main__" == __name__:
         type=int,
         default=None,
         help="Max operating resolution used for LS alignment",
+    )
+    parser.add_argument(
+        "--student_ckpt",
+        type=str,
+        required=True,
+        help="Path to student checkpoint file.",
     )
     parser.add_argument(
         "--checkpoint_dir",

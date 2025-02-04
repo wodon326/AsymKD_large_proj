@@ -113,7 +113,8 @@ class DiffusionMLP(nn.Module):
 
         for _ in range(num_resblks):
             self.res_blocks.append(ResBlock(mid_channels))
-    
+        
+        self.initialize_weights()
 
     def initialize_weights(self):
         def _basic_init(module):
@@ -137,8 +138,6 @@ class DiffusionMLP(nn.Module):
         nn.init.constant_(self.out_layer.modulation[-1].bias, 0)
         nn.init.constant_(self.out_layer.linear.weight, 0)
         nn.init.constant_(self.out_layer.linear.bias, 0)
-
-    
 
     def forward(self, x, t, c):
         assert x.dim() == 2, f"Input shape should be (B*L, in_channels), got {x.shape}"

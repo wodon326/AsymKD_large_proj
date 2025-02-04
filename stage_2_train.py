@@ -10,6 +10,7 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import torch
 import torch.optim as optim
+import torchvision.utils as vutils
 
 
 import torch.distributed as dist
@@ -189,7 +190,7 @@ def fetch_optimizer(args, model):
     )
 
     def lr_schedule(steps):
-        if steps < (warmup_steps:=args.num_steps * 0.25):
+        if steps < (warmup_steps:=args.num_steps * 0.1):
             # Linear warmup
             return steps / warmup_steps
         else:
@@ -306,11 +307,11 @@ def train(rank, world_size, args):
             mid_channels=1024,
             num_resblks=6
         ).to(rank)
-        model.initialize_weights()
         model = GaussianDiffusion(
             model,
             seq_length=37*37,
-            objective="pred_noise",
+            sampling_timesteps=10,
+            objective="pred_v",
         ).to(rank)
 
         #model.module.freeze_bn() # We keep BatchNorm frozen
@@ -350,6 +351,16 @@ def train(rank, world_size, args):
                     # knowledge_feat = (knowledge_feat - knowledge_feat.mean(dim=-1,keepdim=True)) / knowledge_feat.std(dim=-1,keepdim=True)
                     # knowledge_feat = rearrange(knowledge_feat, 'b n (i k) -> b n i k', i=12)
                     # knowledge_feat = knowledge_feat[:, :, 0, :] # shape: B, hw, 32
+                    # print(f"teach_feat norm: {teach_feat.norm(dim=-1).mean()}")
+                    # print(f"teach_feat mean: {teach_feat.mean(dim=-1).mean()}")
+                    # print(f"teach_feat std: {teach_feat.std(dim=-1).mean()}")
+                    # print(f"stud_feat norm: {stud_feat.norm(dim=-1).mean()}")
+                    # print(f"stud_feat std: {stud_feat.mean(dim=-1).mean()}")
+                    # print(f"stud_feat std: {stud_feat.std(dim=-1).mean()}")
+                    # print(f"knowledge_feat norm: {knowledge_feat.norm(dim=-1).mean()}")
+                    # print(f"knowledge_feat mean: {knowledge_feat.mean()}")
+                    # print(f"knowledge_feat std: {knowledge_feat.std(dim=-1).mean()}")
+                    # assert 0
 
                 assert model.training
                 loss = model(target=knowledge_feat, cond=stud_feat)
@@ -370,7 +381,7 @@ def train(rank, world_size, args):
                     _ , metrics = sequence_loss(flow_predictions, flow, valid)
                     logger.push(metrics)
 
-                    if(total_steps % 10 == 10-1):
+                    if total_steps % 100 == 99:
                         # inference visualization in tensorboard while training
                         rgb = depth_image[0].cpu().detach().numpy()
                         rgb = ((rgb - np.min(rgb)) / (np.max(rgb) - np.min(rgb))) * 255
@@ -386,9 +397,25 @@ def train(rank, world_size, args):
                         logger.writer.add_image('Prediction', pred.astype(np.uint8), total_steps)
 
                     if total_steps % save_step == save_step-1:
-                        save_path = Path(f"checkpoint_depth_latent1_avg_ver_stage_2/{total_steps + 1}_{args.name}.pth")
+                        save_path = Path(f"checkpoint_v_depth_latent1_avg_ver_stage_2/{total_steps + 1}_{args.name}.pth")
                         logging.info(f"Saving file {save_path.absolute()}")
                         state.save(save_path)
+                
+                if rank == 0 and total_steps % 100 == 99:
+                    model.eval()
+                    with torch.no_grad():
+                        h, w = depth_image.shape[-2:]
+                        cond_feat = stud_feat[0,...].unsqueeze(0)
+                        cond_feat = rearrange(cond_feat, 'b n c -> (b n) c')
+                        knowledge_feat = model.module.sample(cond_feat, batch_size=1)
+                        knowledge_feat = rearrange(knowledge_feat, '(b n) c -> b n c', b=1)
+                        compress_feat = stud_feat + knowledge_feat
+                        depth = AsymKD_Compress.pred_dep_with_compress_feat(compress_feat, h, w)
+                        depth = depth[0].cpu().detach().numpy()
+                        depth = ((depth - np.min(depth)) / (np.max(depth) - np.min(depth))) * 255
+                        # flow = vutils.make_grid([depth, gt] , nrow=1, normalize=True, scale_each=True)
+                        logger.writer.add_image('Genearation', depth.astype(np.uint8), total_steps)
+                    model.train()
 
                 if total_steps%100==0:
                     torch.cuda.empty_cache()
@@ -399,7 +426,7 @@ def train(rank, world_size, args):
 
         print("FINISHED TRAINING")
         logger.close()
-        state.save(f"checkpoint_depth_latent1_avg_ver/{args.name}.pth")
+        state.save(f"checkpoint_v_depth_latent1_avg_ver_stage_2/{args.name}.pth")
         return None
     finally:
         cleanup()
@@ -447,6 +474,6 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
-    Path("checkpoint_depth_latent1_avg_ver_stage_2").mkdir(exist_ok=True, parents=True)
+    Path("checkpoint_v_depth_latent1_avg_ver_stage_2").mkdir(exist_ok=True, parents=True)
     world_size = torch.cuda.device_count()
     mp.spawn(train, args=(world_size,args,), nprocs=world_size, join=True)

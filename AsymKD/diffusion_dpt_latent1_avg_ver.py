@@ -2,6 +2,8 @@ import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from einops import rearrange
 from functools import partial
 from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
@@ -139,9 +141,9 @@ class DPTHead(nn.Module):
         return out
         
         
-class diffusion_dpt_latent1_avg_ver(nn.Module):
+class Diffusion_dpt_latent1_avg_ver(nn.Module):
     def __init__(self, feature_generate_diffusion ,encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(diffusion_dpt_latent1_avg_ver, self).__init__()
+        super(Diffusion_dpt_latent1_avg_ver, self).__init__()
         
         assert encoder in ['vits', 'vitb', 'vitl']
         print('diffusion_dpt_latent1_avg_ver')
@@ -174,8 +176,23 @@ class diffusion_dpt_latent1_avg_ver(nn.Module):
         patch_h, patch_w = h // 14, w // 14
 
         ######## To-Do : student_intermediate_feature를 input으로 diffusion으로 compress_feature 생성 #########
+        
+        batch_size = student_intermediate_feature.shape[0]
+        cond_feature = rearrange(student_intermediate_feature, 'b n c -> (b n) c')
+        knowledge_feature = self.feature_generate_diffusion.sample(cond_feature, batch_size=batch_size)
+        knowledge_feature = rearrange(knowledge_feature, '(b n) c -> b n c', b=batch_size)
+        compress_feature = student_intermediate_feature + knowledge_feature
 
-        compress_feature = self.feature_generate_diffusion(student_intermediate_feature)
+        # print(f"knowledge_feature norm : {knowledge_feature.norm(dim=-1).mean()}")
+        # print(f"knowledge_feature mean : {knowledge_feature.mean(dim=-1).mean()}")
+        # print(f"knowledge_feature std : {knowledge_feature.std(dim=-1).mean()}")
+        # print(f"student_intermediate_feature norm : {student_intermediate_feature.norm(dim=-1).mean()}")
+        # print(f"student_intermediate_feature mean : {student_intermediate_feature.mean(dim=-1).mean()}")
+        # print(f"student_intermediate_feature std : {student_intermediate_feature.std(dim=-1).mean()}")
+        # print(f"compress_feature norm : {compress_feature.norm(dim=-1).mean()}")
+        # print(f"compress_feature mean : {compress_feature.mean(dim=-1).mean()}")
+        # print(f"compress_feature std : {compress_feature.std(dim=-1).mean()}")
+
 
         #################################################################################
 
