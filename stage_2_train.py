@@ -190,7 +190,7 @@ def fetch_optimizer(args, model):
     )
 
     def lr_schedule(steps):
-        if steps < (warmup_steps:=args.num_steps * 0.25):
+        if steps < (warmup_steps:=args.num_steps * 0.1):
             # Linear warmup
             return steps / warmup_steps
         else:
