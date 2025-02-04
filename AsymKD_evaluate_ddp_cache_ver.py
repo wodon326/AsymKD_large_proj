@@ -302,7 +302,7 @@ def eval(rank, world_size, queue, args):
                         pred_size = (518, 770)
 
                     rgb_resized = F.interpolate(rgb, size=pred_size, mode='bilinear', align_corners=False)
-                    append_data {
+                    append_data = {
                         'rgb_resized' : rgb_resized.detach().cpu(),
                         'depth_raw_ts' : depth_raw_ts.detach().cpu(),
                         'valid_mask_ts' : valid_mask_ts.detach().cpu()

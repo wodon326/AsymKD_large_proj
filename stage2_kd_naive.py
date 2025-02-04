@@ -421,6 +421,7 @@ if __name__ == '__main__':
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--epoch', type=int, default=3, help="length of training schedule.")
     parser.add_argument('--ckpt', type=str, help="load_ckpt")
+    parser.add_argument('--save_dir', type=str, help="save_dir")
    
     # Training parameters
     parser.add_argument('--batch_size', type=int, default=6, help="batch size used during training.")

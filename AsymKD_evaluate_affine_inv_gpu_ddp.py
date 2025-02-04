@@ -47,7 +47,8 @@ from depth_anything_for_evaluate.dpt import DepthAnything
 from segment_anything import sam_model_registry, SamPredictor
 from AsymKD.dpt_latent1 import AsymKD_compress_latent1
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
-from AsymKD.kd_adapter_dpt_latent1_avg_ver import AsymKD_kd_lora_latent1_avg_ver
+from AsymKD.kd_adapter_dpt_latent1_avg_ver import kd_adapter_dpt_latent1_avg_ver
+from AsymKD.kd_naive_dpt_latent1_avg_ver import AsymKD_kd_naive_latent1_avg_ver
 from AsymKD.diffusion_dpt_latent1_avg_ver import Diffusion_dpt_latent1_avg_ver
 from diffusion import DiffusionMLP, GaussianDiffusion
 from torch.multiprocessing import Manager
@@ -269,7 +270,25 @@ def eval(rank, world_size, queue, args):
                 #     print(new_state_dict.keys())
 
             elif model_type == "kd_latent1_avg":
-                model = AsymKD_kd_lora_latent1_avg_ver().to(rank)
+                model = kd_adapter_dpt_latent1_avg_ver().to(rank)
+                if restore_ckpt is not None:
+                    logging.info("Loading checkpoint...")
+                    checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
+                    model_state_dict = model.state_dict()
+                    new_state_dict = {}
+                    for k, v in checkpoint['model_state_dict'].items():
+                        new_key = k.replace('module.', '')
+                        if new_key in model_state_dict:
+                            new_state_dict[new_key] = v
+            
+                    model_state_dict.update(new_state_dict)
+                    model.load_state_dict(model_state_dict)
+                
+                if(rank == 0):
+                    print(new_state_dict.keys())
+
+            elif model_type == "kd_naive_latent1_avg":
+                model = AsymKD_kd_naive_latent1_avg_ver().to(rank)
                 if restore_ckpt is not None:
                     logging.info("Loading checkpoint...")
                     checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
@@ -344,6 +363,8 @@ def eval(rank, world_size, queue, args):
                 elif model_type == "kd_latent1_avg":
                     pred = infer(model, rgb_resized)
                 elif model_type == "diffusion_compress_latent1_avg_ver":
+                    pred = infer(model, rgb_resized)
+                elif model_type == "kd_naive_latent1_avg":
                     pred = infer(model, rgb_resized)
 
 
@@ -464,7 +485,7 @@ if "__main__" == __name__:
     parser.add_argument(
         "--student_ckpt",
         type=str,
-        required=True,
+        required=False,
         help="Path to student checkpoint file.",
     )
     parser.add_argument(
@@ -488,7 +509,7 @@ if "__main__" == __name__:
     manager = Manager()
     queue = manager.Queue()    
     start_num = 25
-    end_num = 9225
+    end_num = 825
         
     for i in range(end_num,start_num-1,-25):
         queue.put(f'{args.checkpoint_dir}/{i}0_AsymKD_new_loss.pth')
