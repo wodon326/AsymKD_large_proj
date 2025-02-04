@@ -310,6 +310,7 @@ def train(rank, world_size, args):
         model = GaussianDiffusion(
             model,
             seq_length=37*37,
+            sampling_timesteps=10,
             objective="pred_v",
         ).to(rank)
 
