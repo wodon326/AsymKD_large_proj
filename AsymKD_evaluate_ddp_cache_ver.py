@@ -155,8 +155,9 @@ def eval(rank, world_size, queue, args):
         )
 
         dataloader = DataLoader(dataset, batch_size=1, num_workers=0)
+        cache_dataloader = []
+        cache_dataloader_flag = False
         # -------------------- Model --------------------
-        
         while not queue.empty():
             restore_ckpt = str(queue.get())
             print(restore_ckpt)
@@ -273,39 +274,52 @@ def eval(rank, world_size, queue, args):
 
             # -------------------- Evaluate --------------------
             model.eval()
+            if cache_dataloader_flag == True:
+                dataloader = cache_dataloader
+                print(f'cache_dataloader_flag {cache_dataloader_flag}')
             for data in dataloader:
-                # GT data
-                depth_raw_ts = data["depth_raw_linear"].squeeze().to(rank)
-                valid_mask_ts = data["valid_mask_raw"].squeeze().to(rank)
-                rgb_float = data["rgb_float"].to(rank)
-                rgb = data["rgb_norm"].to(rank)
+                if cache_dataloader_flag == False:
+                    # GT data
+                    depth_raw_ts = data["depth_raw_linear"].squeeze().to(rank)
+                    valid_mask_ts = data["valid_mask_raw"].squeeze().to(rank)
+                    rgb = data["rgb_norm"].to(rank)
 
-                depth_raw = depth_raw_ts
-                valid_mask = valid_mask_ts
+                    depth_raw = depth_raw_ts
+                    valid_mask = valid_mask_ts
 
-                depth_raw_ts = depth_raw_ts.to(rank)
-                valid_mask_ts = valid_mask_ts.to(rank)
+                    depth_raw_ts = depth_raw_ts.to(rank)
+                    valid_mask_ts = valid_mask_ts.to(rank)
 
-                # Get prediction
-                # (352, 1216)
-                if "kitti" in dataset_config:
-                    pred_size = (518, 1792)
-                # (480, 640), (768, 1024), (480, 640)
-                elif "nyu" in dataset_config or "diode" in dataset_config or "scannet" in dataset_config:
-                    pred_size = (518, 686)
-                # (4032, 6048)
-                elif "eth3d" in dataset_config:
-                    pred_size = (518, 770)
+                    # Get prediction
+                    # (352, 1216)
+                    if "kitti" in dataset_config:
+                        pred_size = (518, 1792)
+                    # (480, 640), (768, 1024), (480, 640)
+                    elif "nyu" in dataset_config or "diode" in dataset_config or "scannet" in dataset_config:
+                        pred_size = (518, 686)
+                    # (4032, 6048)
+                    elif "eth3d" in dataset_config:
+                        pred_size = (518, 770)
 
-                rgb_resized = F.interpolate(rgb, size=pred_size, mode='bilinear', align_corners=False)
-                rgb_float_resized = F.interpolate(rgb_float, size=pred_size, mode='bilinear', align_corners=False)
+                    rgb_resized = F.interpolate(rgb, size=pred_size, mode='bilinear', align_corners=False)
+                    append_data {
+                        'rgb_resized' : rgb_resized.detach().cpu(),
+                        'depth_raw_ts' : depth_raw_ts.detach().cpu(),
+                        'valid_mask_ts' : valid_mask_ts.detach().cpu()
+                    }
+                    cache_dataloader.append(append_data)
+                else:
+                    # GT data
+                    depth_raw_ts = data["depth_raw_ts"].to(rank)
+                    valid_mask_ts = data["valid_mask_ts"].to(rank)
+                    rgb_resized = data["rgb_resized"].to(rank)
+                    
+                    depth_raw = depth_raw_ts
+                    valid_mask = valid_mask_ts
+
+
                 if "depth_anything" in model_type:
                     pred = infer(model, rgb_resized)
-                elif model_type == "bfm":
-                    rgb_resized_seg = segment_anything_predictor.set_image(rgb_float_resized.squeeze())
-                    pred = infer(model, rgb_resized, rgb_resized_seg)
-                    # with torch.no_grad():
-                    #     pred = model(rgb_resized, rgb_resized_seg)
                 elif model_type == "KD_bfm":
                     pred = infer(model, rgb_resized)
                 elif model_type == "bfm_compress":
@@ -386,6 +400,9 @@ def eval(rank, world_size, queue, args):
             _save_to = os.path.join(output_dir, metrics_filename)
             with open(_save_to, "a") as f:
                 f.write(f'{print_str}\n')
+
+            
+            cache_dataloader_flag = True
 
     finally:
         cleanup()

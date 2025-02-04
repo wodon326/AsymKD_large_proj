@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.utils.checkpoint
 from torch.nn.init import trunc_normal_
 
-from torchhub.facebookresearch_dinov2_main.dinov2.layers import Mlp, PatchEmbed, SwiGLUFFNFused, MemEffAttention, NestedTensorBlock as Block
+from torchhub.facebookresearch_dinov2_main.dinov2.layers import Mlp, PatchEmbed, SwiGLUFFNFused, MemEffAttention, MemEffAttention_Lora, NestedTensorBlock as Block, NestedTensorBlock_lora as Block_Lora
 
 
 logger = logging.getLogger("dinov2")
@@ -49,6 +49,7 @@ class DinoVisionTransformer(nn.Module):
         in_chans=3,
         embed_dim=768,
         depth=12,
+        lora_depth=None,
         num_heads=12,
         mlp_ratio=4.0,
         qkv_bias=True,
@@ -60,6 +61,7 @@ class DinoVisionTransformer(nn.Module):
         embed_layer=PatchEmbed,
         act_layer=nn.GELU,
         block_fn=Block,
+        lora_block_fn=Block_Lora,
         ffn_layer="mlp",
         block_chunks=1,
         num_register_tokens=0,
@@ -134,22 +136,55 @@ class DinoVisionTransformer(nn.Module):
         else:
             raise NotImplementedError
 
-        blocks_list = [
-            block_fn(
-                dim=embed_dim,
-                num_heads=num_heads,
-                mlp_ratio=mlp_ratio,
-                qkv_bias=qkv_bias,
-                proj_bias=proj_bias,
-                ffn_bias=ffn_bias,
-                drop_path=dpr[i],
-                norm_layer=norm_layer,
-                act_layer=act_layer,
-                ffn_layer=ffn_layer,
-                init_values=init_values,
-            )
-            for i in range(depth)
-        ]
+        if(lora_depth is None):
+            blocks_list = [
+                block_fn(
+                    dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    proj_bias=proj_bias,
+                    ffn_bias=ffn_bias,
+                    drop_path=dpr[i],
+                    norm_layer=norm_layer,
+                    act_layer=act_layer,
+                    ffn_layer=ffn_layer,
+                    init_values=init_values,
+                )
+                for i in range(depth)
+            ]
+        else:
+            blocks_list = [
+                lora_block_fn(
+                    dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    proj_bias=proj_bias,
+                    ffn_bias=ffn_bias,
+                    drop_path=dpr[i],
+                    norm_layer=norm_layer,
+                    act_layer=act_layer,
+                    ffn_layer=ffn_layer,
+                    init_values=init_values,
+                )
+                for i in range(lora_depth)
+            ]
+            for i in range(depth - lora_depth):
+                blocks_list.append(
+                    block_fn(
+                        dim=embed_dim,
+                        num_heads=num_heads,
+                        mlp_ratio=mlp_ratio,
+                        qkv_bias=qkv_bias,
+                        proj_bias=proj_bias,
+                        ffn_bias=ffn_bias,
+                        drop_path=dpr[i],
+                        norm_layer=norm_layer,
+                        act_layer=act_layer,
+                        ffn_layer=ffn_layer,
+                        init_values=init_values,
+                    ))
         if block_chunks > 0:
             self.chunked_blocks = True
             chunked_blocks = []
@@ -456,6 +491,21 @@ def vit_small(patch_size=16, num_register_tokens=0, **kwargs):
         num_heads=6,
         mlp_ratio=4,
         block_fn=partial(Block, attn_class=MemEffAttention),
+        num_register_tokens=num_register_tokens,
+        **kwargs,
+    )
+    return model
+
+def vit_small_lora(patch_size=16, num_register_tokens=0, **kwargs):
+    model = DinoVisionTransformer(
+        patch_size=patch_size,
+        embed_dim=384,
+        depth=12,
+        lora_depth=9,
+        num_heads=6,
+        mlp_ratio=4,
+        block_fn=partial(Block, attn_class=MemEffAttention),
+        lora_block_fn=partial(Block_Lora, attn_class=MemEffAttention_Lora),
         num_register_tokens=num_register_tokens,
         **kwargs,
     )

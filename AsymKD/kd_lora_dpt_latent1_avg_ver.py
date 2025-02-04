@@ -139,169 +139,61 @@ class DPTHead(nn.Module):
         return out
         
         
-class AsymKD_compress_latent1_avg_ver(nn.Module):
-    def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(AsymKD_compress_latent1_avg_ver, self).__init__()
+class AsymKD_kd_lora_latent1_avg_ver(nn.Module):
+    def __init__(self, encoder='vits_lora', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
+        super(AsymKD_kd_lora_latent1_avg_ver, self).__init__()
         
-        assert encoder in ['vits', 'vitb', 'vitl']
-        print('AsymKD_compress_latent1_avg_ver')
-        self.teacher_encoder = 'vitl'
-        
-        # in case the Internet connection is not stable, please load the DINOv2 locally
-        if localhub:
-            self.teacher_pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(self.teacher_encoder), source='local', pretrained=False)
-        else:
-            self.teacher_pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(self.teacher_encoder))
+        # assert encoder in ['vits', 'vitb', 'vitl']
+        print('AsymKD_kd_lora_latent1_avg_ver')
 
         # in case the Internet connection is not stable, please load the DINOv2 locally
         if localhub:
-            self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(encoder), source='local', pretrained=False)
+            self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(encoder), source='local', pretrained=False).eval()
         else:
-            self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(encoder))
+            self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(encoder)).eval()
 
-        
-        for i, (name, param) in enumerate(self.teacher_pretrained.named_parameters()):
-            param.requires_grad = False
-
-        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
-            param.requires_grad = False
+        # for i, (name, param) in enumerate(self.pretrained.named_parameters()):
+        #     param.requires_grad = False
 
         dim = self.pretrained.blocks[0].attn.qkv.in_features
 
         
-        depth = 1
-        drop_path_rate=0.0
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
-
-        in_channels_384 = 384
-        in_channels_1024 = 1024
-
-        self.Projects_layers_Channel_based_CrossAttn_Block = Channel_Based_CrossAttentionBlock(
-                dim_q=in_channels_384,
-                dim_kv=in_channels_1024,
-                num_heads=16,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        
-        self.Projects_layers_Cross = CrossAttentionBlock(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-
-        self.Projects_layers_Self = Block(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        
 
         self.depth_head = DPTHead(1, dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
-        for i, (name, param) in enumerate(self.depth_head.named_parameters()):
-            param.requires_grad = False
+        # for i, (name, param) in enumerate(self.depth_head.named_parameters()):
+        #     param.requires_grad = False
         
-        self.pretrained.unfreeze_last_n_blocks(n = 3)
 
         self.nomalize = NormalizeLayer()
 
     def forward(self, x):
         h, w = x.shape[-2:]
-
-        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
-        teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
+        # self.pretrained.eval()
+        self.depth_head.eval()
         
-        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
+        LoRA_feat = self.pretrained.get_first_intermediate_layers(x, 4)
         patch_h, patch_w = h // 14, w // 14
 
-        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
-        feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
-        feat = self.Projects_layers_Self(feat)
 
-        features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 3, return_class_token=False)
+        features = self.pretrained.get_intermediate_layers_start_intermediate(LoRA_feat, 3, return_class_token=False)
 
         depth = self.depth_head(features, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
         depth = F.relu(depth)
         depth = self.nomalize(depth) if self.training else depth
 
+        if self.training:
+            return depth, LoRA_feat
+        
         return depth
     
-    def forward_with_inter_feat(self, x):
-        h, w = x.shape[-2:]
-
-        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
-        teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
-        
-        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
-        patch_h, patch_w = h // 14, w // 14
-
-        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
-        compress_feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
-        compress_feat = self.Projects_layers_Self(compress_feat)
-
-        features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feat, 3, return_class_token=False)
-
-        depth = self.depth_head(features, patch_h, patch_w)
-        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
-        depth = F.relu(depth)
-        depth = self.nomalize(depth) if self.training else depth
-
-        return depth, compress_feat, student_intermediate_feature
-    
-    
-    def forward_with_compress_feat(self, x):
-        h, w = x.shape[-2:]
-
-        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
-        teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
-        
-        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
-        patch_h, patch_w = h // 14, w // 14
-
-        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
-        compress_feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
-        compress_feat = self.Projects_layers_Self(compress_feat)
-
-        features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feat, 3, return_class_token=False)
-
-        depth = self.depth_head(features, patch_h, patch_w)
-        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
-        depth = F.relu(depth)
-        depth = self.nomalize(depth) if self.training else depth
-
-        return depth, compress_feat
     
     def load_backbone_from_ckpt(
         self,
         student_ckpt: str,
-        teacher_ckpt: str,
         device: torch.device,
     ):
-        assert student_ckpt.endswith('.pth') and teacher_ckpt.endswith('.pth'), 'Please provide the path to the checkpoint file.'
+        assert student_ckpt.endswith('.pth'), 'Please provide the path to the checkpoint file.'
         
         ckpt = torch.load(student_ckpt, map_location=device)
         model_state_dict = self.state_dict()
@@ -311,27 +203,12 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         model_state_dict.update(new_state_dict)
         self.load_state_dict(model_state_dict)
 
-        ckpt = torch.load(teacher_ckpt, map_location=device)
-        new_state_dict = {}
-        for k, v in ckpt.items():
-            if('depth_head' in k):
-                continue
-            # 키 매핑 규칙을 정의
-            new_key = k.replace('pretrained', 'teacher_pretrained')  # 'module.'를 제거
-            if new_key in model_state_dict:
-                new_state_dict[new_key] = v
 
-        model_state_dict.update(new_state_dict)
-        self.load_state_dict(model_state_dict)
-
-        for i, (name, param) in enumerate(self.teacher_pretrained.named_parameters()):
-            param.requires_grad = False
-
-        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
-            param.requires_grad = False
+        # for i, (name, param) in enumerate(self.pretrained.named_parameters()):
+        #     param.requires_grad = False
         
         return None
-
+    
     def load_ckpt(
         self,
         ckpt: str,
@@ -353,7 +230,7 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         self.load_state_dict(model_state_dict)
     
         return new_state_dict
-    
+
 class NormalizeLayer(nn.Module):
     def __init__(self):
         super(NormalizeLayer, self).__init__()
