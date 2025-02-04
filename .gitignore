@@ -7,7 +7,9 @@ AsymKD_inference_result/
 DepthAnything_inference_input/
 DepthAnything_inference_result/
 last_runs/
-feature_visualize/
+image_folder/
+feature_analysis_output/
+feature_visualize_output/
 debug*
 eval_result*
 *.npz
