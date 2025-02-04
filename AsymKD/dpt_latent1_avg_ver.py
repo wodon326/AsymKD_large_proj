@@ -250,6 +250,18 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
 
         return depth
     
+    def pred_dep_with_compress_feat(self, compress_feat, h, w):
+        patch_h, patch_w = h // 14, w // 14
+        
+        features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feat, 3, return_class_token=False)
+
+        depth = self.depth_head(features, patch_h, patch_w)
+        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
+        depth = F.relu(depth)
+        depth = self.nomalize(depth) if self.training else depth
+
+        return depth
+    
     def forward_with_inter_feat(self, x):
         h, w = x.shape[-2:]
 
