@@ -328,7 +328,8 @@ def train(rank, world_size, args):
         train_loader = datasets.fetch_dataloader(args,rank, world_size)
         optimizer, scheduler = fetch_optimizer(args, model)
         scaler = GradScaler(enabled=args.mixed_precision)
-        logger = Logger(model, scheduler)
+        if rank == 0:
+            logger = Logger(model, scheduler)
         state = State(model, optimizer, scheduler)
 
         # load loss
