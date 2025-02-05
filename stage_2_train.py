@@ -302,7 +302,8 @@ def train(rank, world_size, args):
         AsymKD_Compress = AsymKD_Compress.eval()
 
         # load model - Diffusion
-        model = DiffusionMLP(
+        model = load_diffusion_model(
+            model_name=args.diffusion_model_name,
             in_channels=384,
             out_channels=384,
             mid_channels=1024,
