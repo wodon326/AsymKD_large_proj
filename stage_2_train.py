@@ -296,12 +296,6 @@ def train(rank, world_size, args):
 
         # load model - AsymKD_Compress
         AsymKD_Compress = AsymKD_compress_latent1_avg_ver().to(rank)
-        # student_ckpt = 'depth_anything_vits14.pth'
-        # teacher_ckpt = 'depth_anything_vitl14.pth'
-        # if rank == 0:
-        #     logging.info(f"loading backbones from {student_ckpt} and {teacher_ckpt}")
-        # AsymKD_Compress.load_backbone_from_ckpt(student_ckpt, teacher_ckpt, device=torch.device('cuda', rank))
-        # AsymKD_Compress = torch.nn.SyncBatchNorm.convert_sync_batchnorm(AsymKD_Compress)
         best_ckpts = torch.load('best_checkpoint_depth_latent1/depth_latent1_avg_best_checkpoint.pth', map_location=torch.device('cuda', rank))
         ckpt = {k.replace('module.', ''): v for k, v in best_ckpts['model_state_dict'].items()}
         AsymKD_Compress.load_state_dict(ckpt)
