@@ -396,9 +396,7 @@ def train(rank, world_size, args):
                     with torch.no_grad():
                         h, w = depth_image.shape[-2:]
                         cond_feat = stud_feat[0,...].unsqueeze(0)
-                        cond_feat = rearrange(cond_feat, 'b n c -> (b n) c')
                         knowledge_feat = model.module.sample(cond_feat, batch_size=1)
-                        knowledge_feat = rearrange(knowledge_feat, '(b n) c -> b n c', b=1)
                         compress_feat = stud_feat + knowledge_feat
                         depth = AsymKD_Compress.pred_dep_with_compress_feat(compress_feat, h, w)
                         depth = depth[0].cpu().detach().numpy()
