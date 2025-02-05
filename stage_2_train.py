@@ -266,7 +266,7 @@ class State(object):
 
     def capture(self):
         return {
-            'model_state_dict': self.model.state_dict(),
+            'model_state_dict': self.model.module.state_dict() if isinstance(self.model, DDP) else self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict(),
         }
