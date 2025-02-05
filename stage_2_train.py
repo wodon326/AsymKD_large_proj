@@ -19,7 +19,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss
 from torch.optim.lr_scheduler import LambdaLR
-from diffusion import DiffusionMLP, GaussianDiffusion
+from diffusion import GaussianDiffusion, load_diffusion_model
 from einops import rearrange
 
 import core.AsymKD_datasets as datasets
