@@ -313,7 +313,32 @@ class ScaleAndShiftInvariantLoss(nn.Module):
         return loss, intr_input
 
 
+from pytorch_wavelets import DWTForward, DWTInverse
+class FreeKDLoss(nn.Module):
 
+    def __init__(self):
+        super().__init__()
+
+        self.xfm = DWTForward(J=1, mode='zero',wave='haar')
+
+    def forward(self, y_s_list, y_t_list):
+        if not isinstance(y_s_list, (tuple, list)):
+            y_s_list = (y_s_list, )
+            y_t_list = (y_t_list, )
+
+        losses = []
+        for stage, (y_s, y_t) in enumerate(zip(y_s_list, y_t_list)):
+            # Split
+            cA, cH = self.xfm(y_t)
+            cA_s, cH_s = self.xfm(y_s)
+
+
+            # masked distillation
+            loss = torch.nn.functional.l1_loss(cH_s[0], cH[0])
+            losses.append(loss)
+        
+        loss = sum(losses)
+        return loss
 
 if __name__ == '__main__':
     # Tests for DiscreteNLLLoss

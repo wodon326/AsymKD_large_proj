@@ -15,7 +15,7 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from AsymKD.kd_naive_dpt_latent1_avg_ver import AsymKD_kd_naive_latent1_avg_ver
-from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss
+from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss, FreeKDLoss
 
 import core.AsymKD_datasets as datasets
 import gc
@@ -321,6 +321,7 @@ def train(rank, world_size, args):
         # load loss
         SSILoss = ScaleAndShiftInvariantLoss()
         grad_loss = GradL1Loss()
+        free_kd_loss = FreeKDLoss().to(rank)
 
         # load snapshot
         if args.restore_ckpt is not None:
@@ -339,7 +340,7 @@ def train(rank, world_size, args):
                 assert student_model.training
 
                 with torch.no_grad():
-                    teacher_prediction, teacher_feature = AsymKD_Compress.forward_with_normalize_compress_feat(depth_image)
+                    teacher_prediction, teacher_feature = AsymKD_Compress.forward_with_compress_feat_reshape_patch(depth_image)
                 # loss, metrics = sequence_loss(flow_predictions, flow, valid)
 
                 try:
@@ -358,7 +359,8 @@ def train(rank, world_size, args):
                     a.close()
                 
                 feature_loss = F.mse_loss(student_feature, teacher_feature)
-                loss = alpha * loss + (1-alpha) * feature_loss
+                frequency_loss = free_kd_loss(student_feature, teacher_feature)
+                loss = alpha * loss + (1-alpha) * feature_loss + frequency_loss
 
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
@@ -371,6 +373,7 @@ def train(rank, world_size, args):
                 if rank == 0:
                     logger.writer.add_scalar("live_loss", l_si.item(), total_steps)
                     logger.writer.add_scalar("feature_loss", feature_loss.item(), total_steps)
+                    logger.writer.add_scalar("frequency_loss", frequency_loss.item(), total_steps)
                     logger.writer.add_scalar("gradient_matching_loss", l_grad.item(), total_steps)
                     logger.writer.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], total_steps)
                     _ , metrics = sequence_loss(flow_predictions, flow, valid)

@@ -188,6 +188,25 @@ class AsymKD_kd_naive_latent1_avg_ver(nn.Module):
         return depth
     
     
+    def forward(self, x):
+        h, w = x.shape[-2:]
+        
+        intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
+        patch_h, patch_w = h // 14, w // 14
+
+        features = self.pretrained.get_intermediate_layers_start_intermediate(intermediate_feature, 3, return_class_token=False)
+
+        depth = self.depth_head(features, patch_h, patch_w)
+        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
+        depth = F.relu(depth)
+        depth = self.nomalize(depth) if self.training else depth
+
+        if self.training:
+            return depth, intermediate_feature.permute(0, 2, 1).reshape((intermediate_feature.shape[0], intermediate_feature.shape[-1], patch_h, patch_w))
+
+        return depth
+    
+    
     def load_backbone_from_ckpt(
         self,
         student_ckpt: str,

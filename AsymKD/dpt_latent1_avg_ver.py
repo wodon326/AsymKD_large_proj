@@ -312,7 +312,7 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
 
         return depth, compress_feat
     
-    def forward_with_normalize_compress_feat(self, x):
+    def forward_with_compress_feat_reshape_patch(self, x):
         h, w = x.shape[-2:]
 
         teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
@@ -332,7 +332,8 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         depth = F.relu(depth)
         depth = self.nomalize(depth) if self.training else depth
         
-        return depth, features[0]
+        return depth, compress_feat.reshape((compress_feat.shape[0], compress_feat.shape[-1], patch_h, patch_w))
+
 
 
     def feature_visualize(self, x, reshape_to_image = True):
