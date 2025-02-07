@@ -313,12 +313,68 @@ class ScaleAndShiftInvariantLoss(nn.Module):
         return loss, intr_input
 
 
+from typing import Tuple, Union
 
+class PKDLoss(nn.Module):
+    """PyTorch version of `PKD: General Distillation Framework for Object
+    Detectors via Pearson Correlation Coefficient.
 
-if __name__ == '__main__':
-    # Tests for DiscreteNLLLoss
-    celoss = DiscreteNLLLoss()
-    print(celoss(torch.rand(4, 64, 26, 32)*10, torch.rand(4, 1, 26, 32)*10, ))
+    <https://arxiv.org/abs/2207.02039>`_.
 
-    d = torch.Tensor([6.59, 3.8, 10.0])
-    print(celoss.dequantize_depth(celoss.quantize_depth(d)))
+    Args:
+        loss_weight (float): Weight of loss. Defaults to 1.0.
+        resize_stu (bool): If True, we'll down/up sample the features of the
+            student model to the spatial size of those of the teacher model if
+            their spatial sizes are different. And vice versa. Defaults to
+            True.
+    """
+
+    def __init__(self):
+        super(PKDLoss, self).__init__()
+
+    def norm(self, feat: torch.Tensor) -> torch.Tensor:
+        """Normalize the feature maps to have zero mean and unit variances.
+
+        Args:
+            feat (torch.Tensor): The original feature map with shape
+                (N, C, H, W).
+        """
+        assert len(feat.shape) == 3
+        N, C, HW = feat.shape
+        feat = feat.permute(1, 0, 2).reshape(C, -1)
+        mean = feat.mean(dim=-1, keepdim=True)
+        std = feat.std(dim=-1, keepdim=True)
+        feat = (feat - mean) / (std + 1e-6)
+        return feat.reshape(C, N, HW).permute(1, 0, 2)
+
+    def forward(self, preds_S: Union[torch.Tensor, Tuple],
+                preds_T: Union[torch.Tensor, Tuple]) -> torch.Tensor:
+        """Forward computation.
+
+        Args:
+            preds_S (torch.Tensor | Tuple[torch.Tensor]): The student model
+                prediction. If tuple, it should be several tensors with shape
+                (N, C, H, W).
+            preds_T (torch.Tensor | Tuple[torch.Tensor]): The teacher model
+                prediction. If tuple, it should be several tensors with shape
+                (N, C, H, W).
+
+        Return:
+            torch.Tensor: The calculated loss value.
+        """
+        if isinstance(preds_S, torch.Tensor):
+            preds_S, preds_T = (preds_S, ), (preds_T, )
+
+        loss = 0.
+
+        for pred_S, pred_T in zip(preds_S, preds_T):
+
+            norm_S, norm_T = self.norm(pred_S), self.norm(pred_T)
+
+            # First conduct feature normalization and then calculate the
+            # MSE loss. Methematically, it is equivalent to firstly calculate
+            # the Pearson Correlation Coefficient (r) between two feature
+            # vectors, and then use 1-r as the new feature imitation loss.
+            loss += F.mse_loss(norm_S, norm_T) / 2
+
+        return loss
