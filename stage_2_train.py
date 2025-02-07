@@ -19,12 +19,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss
 from torch.optim.lr_scheduler import LambdaLR
-from diffusion import DiffusionMLP, GaussianDiffusion
+from diffusion import GaussianDiffusion, load_diffusion_model
 from einops import rearrange
 
 import core.AsymKD_datasets as datasets
 import gc
 
+from dataset.util.alignment_gpu import align_depth_least_square
 import torch.nn.functional as F
 try:
     from torch.cuda.amp import GradScaler
@@ -88,9 +89,15 @@ def compute_errors(flow_gt, flow_preds, valid_arr):
     max_depth_eval = 1
 
     for gt, pred, valid in zip(flow_gt, flow_preds, valid_arr):
-
+        
+        disparity_pred, scale, shift = align_depth_least_square(
+            gt_arr=gt,
+            pred_arr=pred,
+            valid_mask_arr=valid,
+            return_scale_shift=True,
+        )
         gt = gt.squeeze().cpu().numpy()
-        pred = pred.clone().squeeze().cpu().detach().numpy()
+        pred = disparity_pred.clone().squeeze().cpu().detach().numpy()
         valid = valid.squeeze().cpu()        
         pred[pred < min_depth_eval] = min_depth_eval
         pred[pred > max_depth_eval] = max_depth_eval
@@ -259,7 +266,7 @@ class State(object):
 
     def capture(self):
         return {
-            'model_state_dict': self.model.state_dict(),
+            'model_state_dict': self.model.module.state_dict() if isinstance(self.model, DDP) else self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict(),
         }
@@ -289,19 +296,14 @@ def train(rank, world_size, args):
 
         # load model - AsymKD_Compress
         AsymKD_Compress = AsymKD_compress_latent1_avg_ver().to(rank)
-        # student_ckpt = 'depth_anything_vits14.pth'
-        # teacher_ckpt = 'depth_anything_vitl14.pth'
-        # if rank == 0:
-        #     logging.info(f"loading backbones from {student_ckpt} and {teacher_ckpt}")
-        # AsymKD_Compress.load_backbone_from_ckpt(student_ckpt, teacher_ckpt, device=torch.device('cuda', rank))
-        # AsymKD_Compress = torch.nn.SyncBatchNorm.convert_sync_batchnorm(AsymKD_Compress)
         best_ckpts = torch.load('best_checkpoint_depth_latent1/depth_latent1_avg_best_checkpoint.pth', map_location=torch.device('cuda', rank))
         ckpt = {k.replace('module.', ''): v for k, v in best_ckpts['model_state_dict'].items()}
         AsymKD_Compress.load_state_dict(ckpt)
         AsymKD_Compress = AsymKD_Compress.eval()
 
         # load model - Diffusion
-        model = DiffusionMLP(
+        model = load_diffusion_model(
+            model_name=args.diffusion_model_name,
             in_channels=384,
             out_channels=384,
             mid_channels=1024,
@@ -326,7 +328,8 @@ def train(rank, world_size, args):
         train_loader = datasets.fetch_dataloader(args,rank, world_size)
         optimizer, scheduler = fetch_optimizer(args, model)
         scaler = GradScaler(enabled=args.mixed_precision)
-        logger = Logger(model, scheduler)
+        if rank == 0:
+            logger = Logger(model, scheduler)
         state = State(model, optimizer, scheduler)
 
         # load loss
@@ -348,19 +351,6 @@ def train(rank, world_size, args):
                 with torch.no_grad():
                     flow_predictions, teach_feat, stud_feat = AsymKD_Compress.forward_with_inter_feat(depth_image)
                     knowledge_feat = teach_feat - stud_feat # shape: B, hw, 384
-                    # knowledge_feat = (knowledge_feat - knowledge_feat.mean(dim=-1,keepdim=True)) / knowledge_feat.std(dim=-1,keepdim=True)
-                    # knowledge_feat = rearrange(knowledge_feat, 'b n (i k) -> b n i k', i=12)
-                    # knowledge_feat = knowledge_feat[:, :, 0, :] # shape: B, hw, 32
-                    # print(f"teach_feat norm: {teach_feat.norm(dim=-1).mean()}")
-                    # print(f"teach_feat mean: {teach_feat.mean(dim=-1).mean()}")
-                    # print(f"teach_feat std: {teach_feat.std(dim=-1).mean()}")
-                    # print(f"stud_feat norm: {stud_feat.norm(dim=-1).mean()}")
-                    # print(f"stud_feat std: {stud_feat.mean(dim=-1).mean()}")
-                    # print(f"stud_feat std: {stud_feat.std(dim=-1).mean()}")
-                    # print(f"knowledge_feat norm: {knowledge_feat.norm(dim=-1).mean()}")
-                    # print(f"knowledge_feat mean: {knowledge_feat.mean()}")
-                    # print(f"knowledge_feat std: {knowledge_feat.std(dim=-1).mean()}")
-                    # assert 0
 
                 assert model.training
                 loss = model(target=knowledge_feat, cond=stud_feat)
@@ -406,9 +396,7 @@ def train(rank, world_size, args):
                     with torch.no_grad():
                         h, w = depth_image.shape[-2:]
                         cond_feat = stud_feat[0,...].unsqueeze(0)
-                        cond_feat = rearrange(cond_feat, 'b n c -> (b n) c')
                         knowledge_feat = model.module.sample(cond_feat, batch_size=1)
-                        knowledge_feat = rearrange(knowledge_feat, '(b n) c -> b n c', b=1)
                         compress_feat = stud_feat + knowledge_feat
                         depth = AsymKD_Compress.pred_dep_with_compress_feat(compress_feat, h, w)
                         depth = depth[0].cpu().detach().numpy()
@@ -460,6 +448,8 @@ if __name__ == '__main__':
     parser.add_argument('--slow_fast_gru', action='store_true', help="iterate the low-res GRUs more frequently")
     parser.add_argument('--n_gru_layers', type=int, default=3, help="number of hidden GRU levels")
     parser.add_argument('--hidden_dims', nargs='+', type=int, default=[128]*3, help="hidden state and context dimensions")
+    
+    parser.add_argument('--diffusion_model_name', type=str, required=True, help="model type for diffusion model")
 
     # Data augmentation
     parser.add_argument('--img_gamma', type=float, nargs='+', default=None, help="gamma range")

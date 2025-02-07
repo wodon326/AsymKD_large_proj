@@ -283,9 +283,9 @@ class GaussianDiffusion(Module):
 
     @torch.no_grad()
     def sample(self, cond, batch_size = 16):
-        seq_length, channels = cond.shape[0], self.channels
+        seq_length, channels = cond.shape[1], self.channels
         sample_fn = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
-        return sample_fn((batch_size * seq_length, channels), cond)
+        return sample_fn((batch_size, seq_length, channels), cond)
 
     @autocast('cuda', enabled = False)
     def q_sample(self, x_start, t, noise=None):
@@ -328,9 +328,8 @@ class GaussianDiffusion(Module):
         b, n, c, device, seq_length, = *target.shape, target.device, self.seq_length
         assert n == seq_length, f'seq length must be {seq_length}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
-        t = repeat(t, "b -> (b n)", n=n) 
-        target = rearrange(target, "b n c -> (b n) c")  # target.view(b * n, c)
-        cond = rearrange(cond, "b n c -> (b n) c") # cond.view(b * n, c)
+        # target = rearrange(target, "b n c -> (b n) c")  # target.view(b * n, c)
+        # cond = rearrange(cond, "b n c -> (b n) c") # cond.view(b * n, c)
 
         target = self.normalize(target)
         return self.p_losses(target, t, cond, *args, **kwargs)
