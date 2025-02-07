@@ -47,7 +47,7 @@ from depth_anything_for_evaluate.dpt import DepthAnything
 from segment_anything import sam_model_registry, SamPredictor
 from AsymKD.dpt_latent1 import AsymKD_compress_latent1
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
-from AsymKD.kd_adapter_dpt_latent1_avg_ver import AsymKD_kd_lora_latent1_avg_ver
+from AsymKD.kd_naive_dpt_latent1_avg_ver import AsymKD_kd_naive_latent1_avg_ver
 from torch.multiprocessing import Manager
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -170,41 +170,6 @@ def eval(rank, world_size, queue, args):
                 elif "large" in model_type:
                     encoder = "vitl"
                 model = DepthAnything.from_pretrained('LiheYoung/depth_anything_{}14'.format(encoder)).to(rank)
-            elif model_type == "bfm":
-                segment_anything = sam_model_registry["vit_b"](checkpoint="sam_vit_b_01ec64.pth").to(rank)
-                segment_anything_predictor = SamPredictor(segment_anything)
-
-                for child in segment_anything.children():
-                    ImageEncoderViT = child
-                    break
-                model = AsymKD_DepthAnything_Infer(ImageEncoderViT=ImageEncoderViT).to(rank)
-
-                if restore_ckpt is not None:
-                    logging.info("Loading checkpoint...")
-                    checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
-                    model_state_dict = model.state_dict()
-                    new_state_dict = {}
-                    for k, v in checkpoint.items():
-                        new_key = k.replace('module.', '')
-                        if new_key in model_state_dict:
-                            new_state_dict[new_key] = v
-            
-                    model_state_dict.update(new_state_dict)
-                    model.load_state_dict(model_state_dict)
-            elif model_type == "KD_bfm":
-                model = AsymKD_Student_Infer().to(rank)
-                '''AsymKD_Student pretrain model loading'''
-                if restore_ckpt is not None:
-                    checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
-                    model__state_dict = model.state_dict()
-                    new_state_dict = {}
-                    for k, v in checkpoint.items():
-                        new_key = k.replace('module.', '')
-                        if new_key in model__state_dict:
-                            new_state_dict[new_key] = v
-
-                    model__state_dict.update(new_state_dict)
-                    model.load_state_dict(model__state_dict)
             elif model_type == "bfm_compress":
                 model = AsymKD_compress_latent1().to(rank)
                 if restore_ckpt is not None:
@@ -242,6 +207,24 @@ def eval(rank, world_size, queue, args):
 
             elif model_type == "kd_latent1_avg":
                 model = AsymKD_kd_lora_latent1_avg_ver().to(rank)
+                if restore_ckpt is not None:
+                    logging.info("Loading checkpoint...")
+                    checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
+                    model_state_dict = model.state_dict()
+                    new_state_dict = {}
+                    for k, v in checkpoint['model_state_dict'].items():
+                        new_key = k.replace('module.', '')
+                        if new_key in model_state_dict:
+                            new_state_dict[new_key] = v
+            
+                    model_state_dict.update(new_state_dict)
+                    model.load_state_dict(model_state_dict)
+                
+                if(rank == 0):
+                    print(new_state_dict.keys())
+
+            elif model_type == "kd_naive_latent1_avg_ver":
+                model = AsymKD_kd_naive_latent1_avg_ver().to(rank)
                 if restore_ckpt is not None:
                     logging.info("Loading checkpoint...")
                     checkpoint = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
@@ -327,6 +310,8 @@ def eval(rank, world_size, queue, args):
                 elif model_type == "depth_latent1_avg":
                     pred = infer(model, rgb_resized)
                 elif model_type == "kd_latent1_avg":
+                    pred = infer(model, rgb_resized)
+                elif model_type == "kd_naive_latent1_avg_ver":
                     pred = infer(model, rgb_resized)
 
 
@@ -467,8 +452,8 @@ if "__main__" == __name__:
     world_size = torch.cuda.device_count()
     manager = Manager()
     queue = manager.Queue()    
-    start_num = 25
-    end_num = 9225
+    start_num = 850
+    end_num = 4050
         
     for i in range(end_num,start_num-1,-25):
         queue.put(f'{args.checkpoint_dir}/{i}0_AsymKD_new_loss.pth')
