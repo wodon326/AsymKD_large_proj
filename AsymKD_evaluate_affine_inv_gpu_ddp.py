@@ -50,7 +50,7 @@ from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from AsymKD.kd_adapter_dpt_latent1_avg_ver import kd_adapter_dpt_latent1_avg_ver
 from AsymKD.kd_naive_dpt_latent1_avg_ver import AsymKD_kd_naive_latent1_avg_ver
 from AsymKD.diffusion_dpt_latent1_avg_ver import Diffusion_dpt_latent1_avg_ver
-from diffusion import DiffusionMLP, GaussianDiffusion
+from diffusion import GaussianDiffusion, load_diffusion_model
 from torch.multiprocessing import Manager
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -245,7 +245,8 @@ def eval(rank, world_size, queue, args):
                 assert args.student_ckpt is not None, "Please provide the path to the student checkpoint file."
                 ### diffusion model ###
                 logging.info("Loading checkpoint...")
-                diff_model = DiffusionMLP(
+                diff_model = load_diffusion_model(
+                    model_name=args.diffusion_model_name,
                     in_channels=384,
                     out_channels=384,
                     mid_channels=1024,
@@ -254,6 +255,7 @@ def eval(rank, world_size, queue, args):
                 diff_model = GaussianDiffusion(
                     diff_model,
                     seq_length=37*37,
+                    sampling_timesteps=10,
                     objective="pred_v",
                 ).to(rank)
                 diff_ckpt = torch.load(restore_ckpt, map_location=torch.device('cuda', rank))
@@ -494,6 +496,12 @@ if "__main__" == __name__:
         required=True,
         help="Path to base checkpoint directory.",
     )
+    parser.add_argument(
+        "--diffusion_model_name",
+        type=str,
+        required=False,
+        help="Name of the diffusion model.",
+    )
 
     parser.add_argument("--no_cuda", action="store_true", help="Run without cuda")
 
@@ -507,17 +515,17 @@ if "__main__" == __name__:
 
     world_size = torch.cuda.device_count()
     manager = Manager()
-    queue = manager.Queue()    
-    start_num = 25
-    end_num = 825
+    queue = manager.Queue()
+    # start_num = 25
+    # end_num = 825
         
-    for i in range(end_num,start_num-1,-25):
-        queue.put(f'{args.checkpoint_dir}/{i}0_AsymKD_new_loss.pth')
+    # for i in range(end_num,start_num-1,-25):
+    #     queue.put(f'{args.checkpoint_dir}/{i}0_AsymKD_new_loss.pth')
 
     # arr = ['92750', '91250', '89500', '85250', '83250', '82750', '81500', '81250', '80500', '78750', '78500', '78000', '77250', '75250', '74000', '73250', '72500', '71500', '70750', '70250', '69000', '68500', '68000', '67750', '68750', '67000', '66500', '66250', '65000', '64000', '62750', '62250', '61750', '60750', '59250', '55500', '55250', '54750', '53750', '52250', '51750', '50000', '48500', '46250', '36000', '35250', '31250']
-    
-    # for i in arr:
-    #     queue.put(f'{args.checkpoint_dir}/{i}_AsymKD_new_loss.pth')
+    arr = range(30000, 0, -2500)
+    for i in arr:
+        queue.put(f'{args.checkpoint_dir}/{i}_AsymKD_new_loss.pth')
 
 
     

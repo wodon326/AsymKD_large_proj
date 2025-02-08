@@ -173,19 +173,18 @@ class DiffusionMLPConditionalCNN(nn.Module):
         return rearrange(x, 'b (h w) c -> b c h w', h=h, w=w)
 
     def forward(self, x, t, c):
-        assert x.dim() == 3, f"Input shape should be (B, L, in_channels), got {x.shape}"
-        assert c.dim() == 3, f"Condition shape should be (B, L, in_channels), got {c.shape}"
-        # x: (B, L, in_channels)
+        assert x.dim() == 4, f"Input shape should be (B, in_channels, h, w), got {x.shape}"
+        assert c.dim() == 4, f"Condition shape should be (B, in_channels, h, w), got {c.shape}"
+        # x: (B, in_channels, h, w)
         # t: (B, L)
-        # c: (B, L, in_channels)
-        b, n, _ = x.shape
+        # c: (B, in_channels, h, w)
+        b, _, h, w = x.shape
 
-        x = rearrange(x, 'b n c -> (b n) c')
-        c = self.depatchfiy(c, h=37, w=37)
+        x = rearrange(x, 'b c h w -> (b h w) c')
 
         x = self.in_layer(x)
         t = self.time_embed(t)
-        t = repeat(t, 'b c -> (b h w) c', h=37, w=37)
+        t = repeat(t, 'b c -> (b h w) c', h=h, w=w)
         c = self.cond_embed(c)
         c = rearrange(c, 'b c h w -> (b h w) c')
 
@@ -194,7 +193,7 @@ class DiffusionMLPConditionalCNN(nn.Module):
         for block in self.res_blocks:
             x = block(x, y)
         o = self.out_layer(x, y)
-        return rearrange(o, '(b n) c -> b n c', b=b, n=n)
+        return rearrange(o, '(b h w) c -> b c h w', b=b, h=h, w=w)
     
 if __name__ == "__main__":
     model = DiffusionMLP(in_channels=256, out_channels=256, mid_channels=512, num_resblks=3).cuda()

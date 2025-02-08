@@ -250,19 +250,7 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         depth = self.nomalize(depth) if self.training else depth
 
         return depth
-    
-    def diffusion_decode(self, compress_feat, h, w):
-        patch_h, patch_w = h // 14, w // 14
-        compress_feat = rearrange(compress_feat, "b c h w -> b (h w) c")
-        features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feat, 3, return_class_token=False)
 
-        depth = self.depth_head(features, patch_h, patch_w)
-        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
-        depth = F.relu(depth)
-        depth = self.nomalize(depth) if self.training else depth
-
-        return depth
-    
     def diffusion_encode(self, x):
         h, w = x.shape[-2:]
 
@@ -285,9 +273,20 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         
         student_intermediate_feature = rearrange(student_intermediate_feature, "b (h w) c -> b c h w", h=patch_h, w=patch_w) 
         compress_feat = rearrange(compress_feat, "b (h w) c -> b c h w", h=patch_h, w=patch_w)
-        
 
         return depth, compress_feat, student_intermediate_feature
+    
+    def diffusion_decode(self, compress_feat, h, w):
+        patch_h, patch_w = h // 14, w // 14
+        compress_feat = rearrange(compress_feat, "b c h w -> b (h w) c")
+        features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feat, 3, return_class_token=False)
+
+        depth = self.depth_head(features, patch_h, patch_w)
+        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
+        depth = F.relu(depth)
+        depth = self.nomalize(depth) if self.training else depth
+
+        return depth
     
     
     def forward_with_compress_feat(self, x):

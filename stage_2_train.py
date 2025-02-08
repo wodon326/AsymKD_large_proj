@@ -1,5 +1,6 @@
 from __future__ import print_function, division
 import os
+import random
 import argparse
 import logging
 import numpy as np
@@ -10,7 +11,6 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import torch
 import torch.optim as optim
-import torchvision.utils as vutils
 
 
 import torch.distributed as dist
@@ -23,6 +23,7 @@ from diffusion import GaussianDiffusion, load_diffusion_model
 from einops import rearrange
 
 import core.AsymKD_datasets as datasets
+from datetime import timedelta
 import gc
 
 from dataset.util.alignment_gpu import align_depth_least_square
@@ -42,11 +43,24 @@ except:
             optimizer.step()
         def update(self):
             pass
+    
+eval_metrics = [
+    "delta1_acc",
+    "delta2_acc",
+    "delta3_acc",
+    "abs_relative_difference",
+    "squared_relative_difference",
+    "rmse_linear",
+    "rmse_log",
+    "log10",
+    "i_rmse",
+    "silog_rmse",
+]
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    dist.init_process_group("nccl", rank=rank, world_size=world_size, timeout=timedelta(hours=10))
 
 def cleanup():
     dist.destroy_process_group()
@@ -199,6 +213,7 @@ def fetch_optimizer(args, model):
     def lr_schedule(steps):
         if steps < (warmup_steps:=args.num_steps * 0.1):
             # Linear warmup
+            return 1.0
             return steps / warmup_steps
         else:
             # Constant learning rate
@@ -210,52 +225,37 @@ def fetch_optimizer(args, model):
 
 
 class Logger:
+    def __init__(self, rank):
+        self.metric_history = {
+            "teacher": {},
+            "student": {},
+            "diff_model": {},
+        }
+        self.writer = SummaryWriter(log_dir='runs') if rank == 0 else None
 
-    SUM_FREQ = 100
-
-    def __init__(self, model, scheduler):
-        self.model = model
-        self.scheduler = scheduler
-        self.total_steps = 0
-        self.running_loss = {}
-        self.writer = SummaryWriter(log_dir='runs')
-
-    def _print_training_status(self):
-        metrics_data = [self.running_loss[k]/Logger.SUM_FREQ for k in sorted(self.running_loss.keys())]
-        training_str = "[{:6d}, {:10.7f}] ".format(self.total_steps+1, self.scheduler.get_last_lr()[0])
-        metrics_str = ("{:10.4f}, "*len(metrics_data)).format(*metrics_data)
-        
-        # print the training status
-        logging.info(f"Training Metrics ({self.total_steps}): {training_str + metrics_str}")
-
-        if self.writer is None:
-            self.writer = SummaryWriter(log_dir='runs')
-
-        for k in self.running_loss:
-            self.writer.add_scalar(k, self.running_loss[k]/Logger.SUM_FREQ, self.total_steps)
-            self.running_loss[k] = 0.0
-
-    def push(self, metrics):
-        self.total_steps += 1
-
+    def push(
+        self, 
+        metrics: dict[str, float], 
+        model_type: str,
+    ):
+        if self.writer is None: return
+        assert model_type in ["teacher", "student", "diff_model"], f"Invalid model type: {model_type}"
         for key in metrics:
-            if key not in self.running_loss:
-                self.running_loss[key] = 0.0
-
-            self.running_loss[key] += metrics[key]
-
-        if self.total_steps % Logger.SUM_FREQ == Logger.SUM_FREQ-1:
-            self._print_training_status()
-            self.running_loss = {}
-
-    def write_dict(self, results):
-        if self.writer is None:
-            self.writer = SummaryWriter(log_dir='runs')
-
-        for key in results:
-            self.writer.add_scalar(key, results[key], self.total_steps)
+            if key not in self.metric_history[model_type]:
+                self.metric_history[model_type][key] = 0.0
+            self.metric_history[model_type][key] += metrics[key]
+    
+    def flush(self, model_type: str):
+        if self.writer is None: return
+        assert model_type in ["teacher", "student", "diff_model"], f"Invalid model type: {model_type}"
+        self.metric_history[model_type] = {}
+    
+    def upload(self, model_type: str, total_samples: int, total_steps: int):
+        for k in self.metric_history[model_type]:
+            self.writer.add_scalar(f"{k}/{model_type}", self.metric_history[model_type][k]/total_samples, total_steps)
 
     def close(self):
+        if self.writer is None: return
         self.writer.close()
 
 class State(object):
@@ -271,23 +271,28 @@ class State(object):
             'scheduler_state_dict': self.scheduler.state_dict(),
         }
     
-    def apply_snapshot(self, obj, device):
-        self.model.load_state_dict(obj['model_state_dict'].to(device), strict=False)
-        self.optimizer.load_state_dict(obj['optimizer_state_dict'].to(device))
-        self.scheduler.load_state_dict(obj['scheduler_state_dict'].to(device))
+    def apply_snapshot(self, obj):
+        self.model.load_state_dict(obj['model_state_dict'], strict=False)
+        self.optimizer.load_state_dict(obj['optimizer_state_dict'])
+        self.scheduler.load_state_dict(obj['scheduler_state_dict'])
     
     def save(self, path):
         torch.save(self.capture(), path)
     
     def load(self, path, device):
-        obj = torch.load(path, map_location=torch.device('cpu'))
-        self.apply_snapshot(obj, device)
+        obj = torch.load(path, map_location=device)
+        self.apply_snapshot(obj)
 
 def train(rank, world_size, args):
     try:
         setup(rank, world_size)
         torch.cuda.set_device(rank)
         torch.cuda.empty_cache()
+        random.seed(1234)
+        np.random.seed(1234)
+        torch.manual_seed(1234)
+        torch.cuda.manual_seed(1234)
+        torch.cuda.manual_seed_all(1234)
 
         # init scalars
         save_step = 2500
@@ -298,7 +303,7 @@ def train(rank, world_size, args):
         AsymKD_Compress = AsymKD_compress_latent1_avg_ver().to(rank)
         best_ckpts = torch.load('best_checkpoint_depth_latent1/depth_latent1_avg_best_checkpoint.pth', map_location=torch.device('cuda', rank))
         ckpt = {k.replace('module.', ''): v for k, v in best_ckpts['model_state_dict'].items()}
-        AsymKD_Compress.load_state_dict(ckpt)
+        AsymKD_Compress.load_state_dict(ckpt, strict=True)
         AsymKD_Compress = AsymKD_Compress.eval()
 
         # load model - Diffusion
@@ -312,26 +317,25 @@ def train(rank, world_size, args):
         model = GaussianDiffusion(
             model,
             seq_length=37*37,
-            sampling_timesteps=10,
+            sampling_timesteps=5,
             objective="pred_v",
         ).to(rank)
 
         #model.module.freeze_bn() # We keep BatchNorm frozen
         model = DDP(model, device_ids=[rank])
-        model.train()
         
         if rank == 0:
             logging.info(f"Parameter Count: {count_parameters(model)}")
             logging.info("AsymKD_VIT Train")
         
         # load others
-        train_loader = datasets.fetch_dataloader(args,rank, world_size)
+        train_loader, val_loader = datasets.fetch_dataloader(args,rank, world_size)
         optimizer, scheduler = fetch_optimizer(args, model)
         scaler = GradScaler(enabled=args.mixed_precision)
-        if rank == 0:
-            logger = Logger(model, scheduler)
+        logger = Logger(rank)
         state = State(model, optimizer, scheduler)
-
+        
+        model.train()
         # load loss
         # SSILoss = ScaleAndShiftInvariantLoss()
         # grad_loss = GradL1Loss()
@@ -339,7 +343,7 @@ def train(rank, world_size, args):
         # load snapshot
         if args.restore_ckpt is not None:
             assert args.restore_ckpt.endswith(".pth")
-            state.load(args.restore_ckpt, rank)
+            state.load(args.restore_ckpt, device=torch.device('cuda', rank))
 
         while total_steps < args.num_steps:
             for i_batch, data_blob in enumerate(pbar:=tqdm(train_loader)):
@@ -349,12 +353,11 @@ def train(rank, world_size, args):
                 optimizer.zero_grad()
                 depth_image, flow, valid = [x.cuda() for x in data_blob]
                 with torch.no_grad():
-                    flow_predictions, teach_feat, stud_feat = AsymKD_Compress.forward_with_inter_feat(depth_image)
+                    flow_predictions, teach_feat, stud_feat = AsymKD_Compress.diffusion_encode(depth_image)
                     knowledge_feat = teach_feat - stud_feat # shape: B, hw, 384
 
                 assert model.training
-                loss = model(target=knowledge_feat, cond=stud_feat)
-                assert model.training
+                loss = model(target=knowledge_feat.detach(), cond=stud_feat)
                 
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
@@ -364,57 +367,80 @@ def train(rank, world_size, args):
                 scheduler.step()
                 scaler.update()
 
-                pbar.set_description(f"diff_loss: {loss.item():.4f}")
+                pbar.set_description(f"loss: {loss.item():.4f}")
                 if rank == 0:
                     logger.writer.add_scalar("diff_loss", loss.item(), total_steps)
                     logger.writer.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], total_steps)
-                    _ , metrics = sequence_loss(flow_predictions, flow, valid)
-                    logger.push(metrics)
 
-                    if total_steps % 100 == 99:
-                        # inference visualization in tensorboard while training
-                        rgb = depth_image[0].cpu().detach().numpy()
-                        rgb = ((rgb - np.min(rgb)) / (np.max(rgb) - np.min(rgb))) * 255
-            
-                        gt = flow[0].cpu().detach().numpy()
-                        gt = ((gt - np.min(gt)) / (np.max(gt) - np.min(gt))) * 255
-            
-                        pred = flow_predictions[0].cpu().detach().numpy()
-                        pred = ((pred - np.min(pred)) / (np.max(pred) - np.min(pred))) * 255
-            
-                        logger.writer.add_image('RGB', rgb.astype(np.uint8), total_steps)
-                        logger.writer.add_image('GT', gt.astype(np.uint8), total_steps)
-                        logger.writer.add_image('Prediction', pred.astype(np.uint8), total_steps)
-
-                    if total_steps % save_step == save_step-1:
-                        save_path = Path(f"checkpoint_v_depth_latent1_avg_ver_stage_2/{total_steps + 1}_{args.name}.pth")
-                        logging.info(f"Saving file {save_path.absolute()}")
-                        state.save(save_path)
-                
                 if rank == 0 and total_steps % 100 == 99:
+                    # inference visualization in tensorboard while training
+                    rgb = depth_image[0].cpu().detach().numpy()
+                    rgb = ((rgb - np.min(rgb)) / (np.max(rgb) - np.min(rgb))) * 255
+        
+                    gt = flow[0].cpu().detach().numpy()
+                    gt = ((gt - np.min(gt)) / (np.max(gt) - np.min(gt))) * 255
+        
+                    pred = flow_predictions[0].cpu().detach().numpy()
+                    pred = ((pred - np.min(pred)) / (np.max(pred) - np.min(pred))) * 255
+        
+                    logger.writer.add_image('RGB', rgb.astype(np.uint8), total_steps)
+                    logger.writer.add_image('GT', gt.astype(np.uint8), total_steps)
+                    # logger.writer.add_image('Pred/Teacher', pred.astype(np.uint8), total_steps)
                     model.eval()
                     with torch.no_grad():
                         h, w = depth_image.shape[-2:]
                         cond_feat = stud_feat[0,...].unsqueeze(0)
-                        knowledge_feat = model.module.sample(cond_feat, batch_size=1)
-                        compress_feat = stud_feat + knowledge_feat
-                        depth = AsymKD_Compress.pred_dep_with_compress_feat(compress_feat, h, w)
-                        depth = depth[0].cpu().detach().numpy()
-                        depth = ((depth - np.min(depth)) / (np.max(depth) - np.min(depth))) * 255
+                        cond2_feat = teach_feat[0,...].unsqueeze(0)
+                        knowledge_feat = model.module.sample(cond_feat, shape=cond_feat.shape)
+                        compress_feat = cond_feat + knowledge_feat
+                        depth = [AsymKD_Compress.diffusion_decode(feat, h, w).squeeze(dim=0) for feat in [compress_feat, cond_feat, cond2_feat]]
+                        gen_depth, stud_depth, teach_feat = depth[0].cpu().detach().numpy(), depth[1].cpu().detach().numpy(), depth[2].cpu().detach().numpy()
+                        gen_depth = ((gen_depth - np.min(gen_depth)) / (np.max(gen_depth) - np.min(gen_depth))) * 255
+                        stud_depth = ((stud_depth - np.min(stud_depth)) / (np.max(stud_depth) - np.min(stud_depth))) * 255
+                        teach_feat = ((teach_feat - np.min(teach_feat)) / (np.max(teach_feat) - np.min(teach_feat))) * 255
                         # flow = vutils.make_grid([depth, gt] , nrow=1, normalize=True, scale_each=True)
-                        logger.writer.add_image('Genearation', depth.astype(np.uint8), total_steps)
+                    logger.writer.add_image('Pred/Diffusion', gen_depth.astype(np.uint8), total_steps)
+                    logger.writer.add_image('Pred/Teacher', teach_feat.astype(np.uint8), total_steps)
+                    logger.writer.add_image('Pred/Student', stud_depth.astype(np.uint8), total_steps)
+                    model.train()
+                
+                if rank == 0 and total_steps % 2500 == 2500 - 1:
+                    model.eval()
+                    vbar = tqdm(val_loader)
+                    vbar.set_description(f"Validation")
+
+                    for data_blob in vbar:
+                        depth_image, flow, valid = [x.cuda() for x in data_blob]
+                        h, w = depth_image.shape[-2:]
+                        patch_h, patch_w = h // 14, w // 14
+                        with torch.no_grad():
+                            flow_predictions, teach_feat, stud_feat = AsymKD_Compress.diffusion_encode(depth_image)
+                            knowledge_feat = model.module.sample(cond=stud_feat, shape=stud_feat.shape)
+                            compress_feat = stud_feat + knowledge_feat
+                            pred_depths = [AsymKD_Compress.diffusion_decode(feat, h, w) for feat in [teach_feat, stud_feat, compress_feat]]
+                            results = [sequence_loss(pred_depth, flow, valid)[1] for pred_depth in pred_depths]
+                            for model_type, metrics in zip(["teacher", "student", "diff_model"], results):
+                                logger.push(metrics, model_type)
+
+                    for model_type in ["teacher", "student", "diff_model"]:
+                        logger.upload(model_type, len(val_loader.dataset), total_steps)
+                        logger.flush(model_type)
                     model.train()
 
                 if total_steps%100==0:
                     torch.cuda.empty_cache()
                     gc.collect()
 
+                if total_steps % save_step == save_step-1:
+                    save_path = Path(f"checkpoint_diff_cnn_latent1_avg_ver_stage_2/{total_steps + 1}_{args.name}.pth")
+                    logging.info(f"Saving file {save_path.absolute()}")
+                    state.save(save_path)
                 total_steps += 1
             epoch += 1      
 
         print("FINISHED TRAINING")
         logger.close()
-        state.save(f"checkpoint_v_depth_latent1_avg_ver_stage_2/{args.name}.pth")
+        state.save(f"checkpoint_diff_cnn_latent1_avg_ver_stage_2/{args.name}.pth")
         return None
     finally:
         cleanup()
@@ -459,11 +485,9 @@ if __name__ == '__main__':
     parser.add_argument('--noyjitter', action='store_true', help='don\'t simulate imperfect rectification')
     args = parser.parse_args()
 
-    torch.manual_seed(1234)
-    np.random.seed(1234)
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
-    Path("checkpoint_v_depth_latent1_avg_ver_stage_2").mkdir(exist_ok=True, parents=True)
+    Path("checkpoint_diff_cnn_latent1_avg_ver_stage_2").mkdir(exist_ok=True, parents=True)
     world_size = torch.cuda.device_count()
     mp.spawn(train, args=(world_size,args,), nprocs=world_size, join=True)

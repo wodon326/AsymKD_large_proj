@@ -258,7 +258,7 @@ class GaussianDiffusion(Module):
 
         x_start = None
 
-        for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
+        for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step', disable=True):
             time_cond = torch.full((batch,), time, device=device, dtype=torch.long)
             pred_noise, x_start, *_ = self.model_predictions(z_t, time_cond, cond, clip_x_start = clip_denoised)
 
@@ -282,10 +282,10 @@ class GaussianDiffusion(Module):
         return z_t
 
     @torch.no_grad()
-    def sample(self, cond, batch_size = 16):
-        seq_length, channels = cond.shape[1], self.channels
+    def sample(self, cond, shape: tuple):
+        assert len(shape) == 4, f"shape must be a length 4, (batch, channels, height, width), got {shape}"
         sample_fn = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
-        return sample_fn((batch_size, seq_length, channels), cond)
+        return sample_fn(shape, cond)
 
     @autocast('cuda', enabled = False)
     def q_sample(self, x_start, t, noise=None):
@@ -325,8 +325,8 @@ class GaussianDiffusion(Module):
         return loss.mean()
 
     def forward(self, target, cond, *args, **kwargs):
-        b, n, c, device, seq_length, = *target.shape, target.device, self.seq_length
-        assert n == seq_length, f'seq length must be {seq_length}'
+        b, c, h, w, device, seq_length, = *target.shape, target.device, self.seq_length
+        # assert n == seq_length, f'seq length must be {seq_length}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         # target = rearrange(target, "b n c -> (b n) c")  # target.view(b * n, c)
         # cond = rearrange(cond, "b n c -> (b n) c") # cond.view(b * n, c)

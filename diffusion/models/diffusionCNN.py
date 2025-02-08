@@ -2,6 +2,18 @@ import math
 
 import torch
 from torch import nn
+from einops import rearrange, repeat
+
+class CustomLayerNorm(nn.LayerNorm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def forward(self, x):
+        assert x.dim() == 4, f"Input shape should be (B, C, H, W), got {x.shape}"
+        x = rearrange(x, 'b c h w -> b h w c')
+        x = super().forward(x)
+        x = rearrange(x, 'b h w c -> b c h w')
+        return x
 
 class TimestepEmbedder(nn.Module):
     """
@@ -53,19 +65,19 @@ class ResBlock(nn.Module):
         super().__init__()
         self.channels = channels
 
-        self.in_norm = nn.LayerNorm(channels, elementwise_affine=False, eps=1e-6)
+        self.in_norm = nn.GroupNorm(32, channels, affine=False, eps=1e-6)
         self.mlp = nn.Sequential(
-            nn.Linear(channels, channels, bias=True),
+            nn.Conv2d(channels, channels, 3, 1, 1, bias=True),
             nn.SiLU(),
-            nn.Linear(channels, channels, bias=True),
+            nn.Conv2d(channels, channels, 3, 1, 1, bias=True),
         )
 
         self.modulation = nn.Sequential(
-            nn.SiLU(), nn.Linear(channels, 3 * channels, bias=True)
+            nn.SiLU(), nn.Conv2d(channels, 3 * channels, 3, 1, 1, bias=True)
         )
 
     def forward(self, x, y):
-        shift, scale, gate = self.modulation(y).chunk(3, dim=-1)
+        shift, scale, gate = self.modulation(y).chunk(3, dim=1)
         h = self.in_norm(x) * (scale + 1) + shift
         h = self.mlp(h)
         return x + gate * h
@@ -76,17 +88,35 @@ class FinalLayer(nn.Module):
     """
     def __init__(self, model_channels, out_channels):
         super().__init__()
-        self.norm_final = nn.LayerNorm(model_channels, elementwise_affine=False, eps=1e-6)
-        self.linear = nn.Linear(model_channels, out_channels, bias=True)
+        self.norm_final = nn.GroupNorm(32, model_channels, affine=False, eps=1e-6)
+        self.conv = nn.Conv2d(model_channels, out_channels, 3, 1, 1, bias=True)
         self.modulation = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(model_channels, 2 * model_channels, bias=True)
+            nn.Conv2d(model_channels, 2 * model_channels, 3, 1, 1, bias=True)
         )
 
     def forward(self, x, c):
-        shift, scale = self.modulation(c).chunk(2, dim=-1)
+        shift, scale = self.modulation(c).chunk(2, dim=1)
         x = self.norm_final(x) * (scale + 1) + shift
-        x = self.linear(x)
+        x = self.conv(x)
+        return x
+
+class ConditionalEmbedder(nn.Module):
+    def __init__(self, in_channels, mid_channels):
+        super().__init__()
+        self.norm = nn.GroupNorm(32, in_channels, affine=False, eps=1e-6)
+        self.conv = nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=True)
+        self.modulation = nn.Sequential(
+            nn.GroupNorm(32, in_channels, eps=1e-8),
+            nn.Conv2d(in_channels, 2 * in_channels, kernel_size=3, padding=1, bias=True),
+            nn.SiLU(),
+            nn.Conv2d(2 * in_channels, 2 * in_channels, kernel_size=3, padding=1, bias=True),
+        )
+
+    def forward(self, x):
+        shift, scale = self.modulation(x).chunk(2, dim=1)
+        x = self.norm(x) * (scale + 1) + shift
+        x = self.conv(x)
         return x
 
 class DiffusionCNN(nn.Module):
@@ -104,10 +134,10 @@ class DiffusionCNN(nn.Module):
         self.mid_channels = mid_channels
 
         self.time_embed = TimestepEmbedder(mid_channels)
-        self.cond_embed = nn.Linear(384, mid_channels)
+        self.cond_embed = ConditionalEmbedder(in_channels, mid_channels)
 
 
-        self.in_layer = nn.Linear(in_channels, mid_channels)
+        self.in_layer = nn.Conv2d(in_channels, mid_channels, 3, 1, 1)
         self.out_layer = FinalLayer(mid_channels, out_channels)
         self.res_blocks = nn.ModuleList([])
 
@@ -118,7 +148,7 @@ class DiffusionCNN(nn.Module):
 
     def initialize_weights(self):
         def _basic_init(module):
-            if isinstance(module, nn.Linear):
+            if isinstance(module, nn.Conv2d):
                 torch.nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
@@ -136,18 +166,20 @@ class DiffusionCNN(nn.Module):
         # Zero-out output layers
         nn.init.constant_(self.out_layer.modulation[-1].weight, 0)
         nn.init.constant_(self.out_layer.modulation[-1].bias, 0)
-        nn.init.constant_(self.out_layer.linear.weight, 0)
-        nn.init.constant_(self.out_layer.linear.bias, 0)
+        nn.init.constant_(self.out_layer.conv.weight, 0)
+        nn.init.constant_(self.out_layer.conv.bias, 0)
 
     def forward(self, x, t, c):
-        assert x.dim() == 2, f"Input shape should be (B*L, in_channels), got {x.shape}"
-        assert c.dim() == 2, f"Condition shape should be (B*L, in_channels), got {c.shape}"
-        # x: (B * L, in_channels)
-        # t: (B * L,)
-        # c: (B * L, in_channels)
+        assert x.dim() == 4, f"Input shape should be (B, in_channels, h, w), got {x.shape}"
+        assert c.dim() == 4, f"Condition shape should be (B, in_channels, h, w), got {c.shape}"
+        # x: (B, in_channels, h, w)
+        # t: (B, L)
+        # c: (B, in_channels, h, w)
+        _, _, h, w = x.shape
 
         x = self.in_layer(x)
         t = self.time_embed(t)
+        t = repeat(t, 'b c -> b c h w', h=h, w=w)
         c = self.cond_embed(c)
         y = t + c
 
