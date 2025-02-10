@@ -13,7 +13,8 @@ feature_visualize_output/
 debug*
 eval_result*
 *.npz
-*.txt
+Exception_catch.txt
+output/
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,visualstudiocode
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,visualstudiocode
