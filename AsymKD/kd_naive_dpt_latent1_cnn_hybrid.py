@@ -3,11 +3,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
+from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
 from depth_anything.blocks import FeatureFusionBlock, _make_scratch
 
 from torchhub.facebookresearch_dinov2_main.dinov2.layers.block import Channel_Based_CrossAttentionBlock,CrossAttentionBlock,Block
 from torchhub.facebookresearch_dinov2_main.dinov2.layers.mlp import Mlp
+
+from AsymKD.cnn_module import CNN_network, SpatialAttentionExtractor, ChannelAttentionEnhancement
 
 def _make_fusion_block(features, use_bn, size = None):
     return FeatureFusionBlock(
@@ -19,16 +22,6 @@ def _make_fusion_block(features, use_bn, size = None):
         align_corners=True,
         size=size,
     )
-
-class NormalizeLayer(nn.Module):
-    def __init__(self):
-        super(NormalizeLayer, self).__init__()
-    
-    def forward(self, x):
-        min_val = x.amin(dim=(1, 2, 3), keepdim=True)  # 각 배치별 최소값
-        max_val = x.amax(dim=(1, 2, 3), keepdim=True)  # 각 배치별 최대값
-        x = (x - min_val) / (max_val - min_val + 1e-6)
-        return x
 
 
 class DPTHead(nn.Module):
@@ -148,128 +141,123 @@ class DPTHead(nn.Module):
         return out
         
         
-class AsymKD_compress(nn.Module):
-    def __init__(
-        self, 
-        student_ckpt: str='depth_anything_vits14.pth',
-        teacher_ckpt: str='depth_anything_vitl14.pth',
-        features: int=64,
-        out_channels: list[int]=[48, 96, 192, 384], 
-        use_bn: bool=False, 
-        use_clstoken: bool=False, 
-        localhub: bool=True
-    ):
-        super(AsymKD_compress, self).__init__()
+class AsymKD_kd_naive_dpt_latent1_cnn_hybrid(nn.Module):
+    def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
+        super(AsymKD_kd_naive_dpt_latent1_cnn_hybrid, self).__init__()
         
-        student_encoder = 'vits'
-        teacher_encoder = 'vitl'
-        
-        # in case the Internet connection is not stable, please load the DINOv2 locally
-        if localhub:
-            self.teacher_pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(teacher_encoder), source='local', pretrained=False).eval()
-        else:
-            self.teacher_pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(teacher_encoder)).eval()
+        assert encoder in ['vits', 'vitb', 'vitl']
+        print('AsymKD_kd_naive_dpt_latent1_cnn_hybrid')
 
         # in case the Internet connection is not stable, please load the DINOv2 locally
         if localhub:
-            self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(student_encoder), source='local', pretrained=False).eval()
+            self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(encoder), source='local', pretrained=False)
         else:
-            self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(student_encoder)).eval()
+            self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(encoder))
 
         dim = self.pretrained.blocks[0].attn.qkv.in_features
-        
-        depth = 1
-        drop_path_rate=0.0
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
-
-        in_channels_384 = 384
-        in_channels_1024 = 1024
-
-        self.Projects_layers_Channel_based_CrossAttn_Block = nn.ModuleList([
-            Channel_Based_CrossAttentionBlock(
-                dim_q=in_channels_384,
-                dim_kv=in_channels_1024,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-         for _ in range(4)])
-        
-        self.Projects_layers_Cross = nn.ModuleList([
-            CrossAttentionBlock(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            ) for _ in range(4)])
-
-        self.Projects_layers_Self = nn.ModuleList([
-            Block(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-         for _ in range(4)])
 
         self.depth_head = DPTHead(1, dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
-        for i, (name, param) in enumerate(self.depth_head.named_parameters()):
-            param.requires_grad = False
-        
+
+
+        cnn_feat_channel = 48
+        self.sam = SpatialAttentionExtractor()
+        self.cam = ChannelAttentionEnhancement(cnn_feat_channel)
+
+        self.cnn_module = CNN_network()
+
+        self.mlp_layer = Mlp(
+                in_features=cnn_feat_channel*3+dim,
+                out_features= dim,
+            )
+
         self.nomalize = NormalizeLayer()
 
     def forward(self, x):
         h, w = x.shape[-2:]
-        self.teacher_pretrained.eval()
-        self.pretrained.eval()
-
-        teacher_features = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False)
-        student_features = self.pretrained.get_intermediate_layers(x, 4, return_class_token=False)
-    
+        
+        intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
         patch_h, patch_w = h // 14, w // 14
 
-        proj_feature = []
-        for teacher_feat, student_feat, Channel_CrossAttn, CrossAtten, SelfAttn in zip(teacher_features,student_features,self.Projects_layers_Channel_based_CrossAttn_Block,self.Projects_layers_Cross, self.Projects_layers_Self):
-            channel_proj_feat = Channel_CrossAttn(student_feat,teacher_feat)
-            feat = CrossAtten(student_feat,channel_proj_feat)
-            feat = SelfAttn(feat)
-            proj_feature.append(feat)
+        #CNN 모듈 및 CBAM 모듈을 통한 feature extract
+        cnn_feature = self.cnn_module(x)
+        cam_feat = self.cam(cnn_feature) * cnn_feature
+        attn = self.sam(cam_feat)
+        high_freq_feat = cnn_feature * attn
+        low_freq_feat = cnn_feature * (1 - attn)
+        cnn_concat_features = torch.cat((high_freq_feat, cnn_feature, low_freq_feat), dim=1)
+        cnn_concat_features = F.interpolate(cnn_concat_features, size=(patch_h*2, patch_w*2), mode='bilinear', align_corners=False)
+        cnn_concat_features = F.max_pool2d(cnn_concat_features, kernel_size=2)
+        cnn_concat_features = cnn_concat_features.reshape(cnn_concat_features.shape[0], cnn_concat_features.shape[1], patch_h * patch_w).permute(0, 2, 1)
 
-        depth = self.depth_head(proj_feature, patch_h, patch_w)
+
+        #CNN feature와 small 모델 feature fusion
+        fusion_feat = self.mlp_layer(torch.cat((cnn_concat_features, intermediate_feature), dim=2))
+
+
+        features = self.pretrained.get_intermediate_layers_start_intermediate(fusion_feat, 3, return_class_token=False)
+
+        depth = self.depth_head(features, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
         depth = F.relu(depth)
         depth = self.nomalize(depth) if self.training else depth
 
+        if self.training:
+            return depth, fusion_feat
+
         return depth
+    
+    def forward_val(self, x):
+        h, w = x.shape[-2:]
+        
+        intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
+        patch_h, patch_w = h // 14, w // 14
+
+        #CNN 모듈 및 CBAM 모듈을 통한 feature extract
+        cnn_feature = self.cnn_module(x)
+        cam_feat = self.cam(cnn_feature) * cnn_feature
+        attn = self.sam(cam_feat)
+        high_freq_feat = cnn_feature * attn
+        low_freq_feat = cnn_feature * (1 - attn)
+        cnn_concat_features = torch.cat((high_freq_feat, cnn_feature, low_freq_feat), dim=1)
+        cnn_concat_features = F.interpolate(cnn_concat_features, size=(patch_h*2, patch_w*2), mode='bilinear', align_corners=False)
+        cnn_concat_features = F.max_pool2d(cnn_concat_features, kernel_size=2)
+        cnn_concat_features = cnn_concat_features.reshape(cnn_concat_features.shape[0], cnn_concat_features.shape[1], patch_h * patch_w).permute(0, 2, 1)
+
+
+        #CNN feature와 small 모델 feature fusion
+        fusion_feat = self.mlp_layer(torch.cat((cnn_concat_features, intermediate_feature), dim=2))
+
+
+        features = self.pretrained.get_intermediate_layers_start_intermediate(fusion_feat, 3, return_class_token=False)
+        depth = self.depth_head(features, patch_h, patch_w)
+        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
+        depth = F.relu(depth)
+        depth = self.nomalize(depth) if self.training else depth
+
+
+        small_features = self.pretrained.get_intermediate_layers_start_intermediate(intermediate_feature, 3, return_class_token=False)
+        small_depth = self.depth_head(small_features, patch_h, patch_w)
+        small_depth = F.interpolate(small_depth, size=(h, w), mode="bilinear", align_corners=True)
+        small_depth = F.relu(small_depth)
+        small_depth = self.nomalize(small_depth) if self.training else small_depth
+
+        return [depth, small_depth]
+    
+    def freeze_kd_naive_dpt_latent1_cnn_hybrid_style(self):
+        
+        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
+            param.requires_grad = False
+
+        for i, (name, param) in enumerate(self.depth_head.named_parameters()):
+            param.requires_grad = False
+
     
     def load_backbone_from_ckpt(
         self,
         student_ckpt: str,
-        teacher_ckpt: str,
         device: torch.device,
     ):
-        assert student_ckpt.endswith('.pth') and teacher_ckpt.endswith('.pth'), 'Please provide the path to the checkpoint file.'
+        assert student_ckpt.endswith('.pth'), 'Please provide the path to the checkpoint file.'
         
         ckpt = torch.load(student_ckpt, map_location=device)
         model_state_dict = self.state_dict()
@@ -279,23 +267,38 @@ class AsymKD_compress(nn.Module):
         model_state_dict.update(new_state_dict)
         self.load_state_dict(model_state_dict)
 
-        ckpt = torch.load(teacher_ckpt, map_location=device)
+    
+        return None
+
+    
+    def load_ckpt(
+        self,
+        ckpt: str,
+        device: torch.device
+    ):
+        assert ckpt.endswith('.pth'), 'Please provide the path to the checkpoint file.'
+        
+        ckpt = torch.load(ckpt, map_location=device)
+        ckpt = ckpt['model_state_dict']
+        model_state_dict = self.state_dict()
         new_state_dict = {}
         for k, v in ckpt.items():
-            if('depth_head' in k):
-                continue
             # 키 매핑 규칙을 정의
-            new_key = k.replace('pretrained', 'teacher_pretrained')  # 'module.'를 제거
+            new_key = k.replace('module.', '')  # 'module.'를 제거
             if new_key in model_state_dict:
                 new_state_dict[new_key] = v
 
         model_state_dict.update(new_state_dict)
         self.load_state_dict(model_state_dict)
-
-        for i, (name, param) in enumerate(self.teacher_pretrained.named_parameters()):
-            param.requires_grad = False
-
-        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
-            param.requires_grad = False
-        
-        return None
+    
+        return new_state_dict
+    
+class NormalizeLayer(nn.Module):
+    def __init__(self):
+        super(NormalizeLayer, self).__init__()
+    
+    def forward(self, x):
+        min_val = x.amin(dim=(1, 2, 3), keepdim=True)  # 각 배치별 최소값
+        max_val = x.amax(dim=(1, 2, 3), keepdim=True)  # 각 배치별 최대값
+        x = (x - min_val) / (max_val - min_val + 1e-6)
+        return x

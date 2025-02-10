@@ -294,27 +294,13 @@ class AsymKD_compress_latent1_student_teacher_avg_ver(nn.Module):
         
         return None
 
+
 class NormalizeLayer(nn.Module):
     def __init__(self):
         super(NormalizeLayer, self).__init__()
     
     def forward(self, x):
-        min_val = x.min()
-        max_val = x.max()
-        x = (x - min_val) / (max_val - min_val + 1e-6)  # 작은 값을 더하여 0으로 나누는 것을 방지합니다.
+        min_val = x.amin(dim=(1, 2, 3), keepdim=True)  # 각 배치별 최소값
+        max_val = x.amax(dim=(1, 2, 3), keepdim=True)  # 각 배치별 최대값
+        x = (x - min_val) / (max_val - min_val + 1e-6)
         return x
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--encoder",
-        default="vits",
-        type=str,
-        choices=["vits", "vitb", "vitl"],
-    )
-    args = parser.parse_args()
-    
-    model = DepthAnything.from_pretrained("LiheYoung/depth_anything_{:}14".format(args.encoder))
-    
-    print(model)
-    
