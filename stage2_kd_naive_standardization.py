@@ -15,7 +15,7 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from AsymKD.kd_naive_dpt_latent1_avg_ver import AsymKD_kd_naive_latent1_avg_ver
-from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss
+from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss, PKDLoss
 
 import core.AsymKD_datasets as datasets
 import gc
@@ -321,6 +321,7 @@ def train(rank, world_size, args):
         # load loss
         SSILoss = ScaleAndShiftInvariantLoss()
         grad_loss = GradL1Loss()
+        pkd_loss = PKDLoss()
 
         # load snapshot
         if args.restore_ckpt is not None:
@@ -339,7 +340,7 @@ def train(rank, world_size, args):
                 assert student_model.training
 
                 with torch.no_grad():
-                    teacher_prediction, teacher_feature = AsymKD_Compress.forward_with_normalize_compress_feat(depth_image)
+                    teacher_prediction, teacher_feature = AsymKD_Compress.forward_with_compress_feat(depth_image)
                 # loss, metrics = sequence_loss(flow_predictions, flow, valid)
 
                 try:
@@ -357,7 +358,7 @@ def train(rank, world_size, args):
                     a.write(str(e)+'\n')
                     a.close()
                 
-                feature_loss = F.mse_loss(student_feature, teacher_feature)
+                feature_loss = pkd_loss(student_feature, teacher_feature)
                 loss = alpha * loss + (1-alpha) * feature_loss
 
                 scaler.scale(loss).backward()
@@ -396,7 +397,7 @@ def train(rank, world_size, args):
                         logger.writer.add_image('Prediction/teacher', teacher_pred.astype(np.uint8), total_steps)
 
                     if total_steps % save_step == save_step-1:
-                        save_path = Path(f"checkpoint_depth_latent1_avg_ver/{total_steps + 1}_{args.name}.pth")
+                        save_path = Path(f"checkpoint_stage2_kd_naive_standardization/{total_steps + 1}_{args.name}.pth")
                         logging.info(f"Saving file {save_path.absolute()}")
                         state.save(save_path)
 
@@ -409,7 +410,7 @@ def train(rank, world_size, args):
 
         print("FINISHED TRAINING")
         logger.close()
-        state.save(f"checkpoint_depth_latent1_avg_ver/{args.name}.pth")
+        state.save(f"checkpoint_stage2_kd_naive_standardization/{args.name}.pth")
         return None
     finally:
         cleanup()
@@ -459,6 +460,6 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
-    Path("checkpoint_depth_latent1_avg_ver").mkdir(exist_ok=True, parents=True)
+    Path("checkpoint_stage2_kd_naive_standardization").mkdir(exist_ok=True, parents=True)
     world_size = torch.cuda.device_count()
     mp.spawn(train, args=(world_size,args,), nprocs=world_size, join=True)

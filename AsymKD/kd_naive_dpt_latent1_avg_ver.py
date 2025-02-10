@@ -183,7 +183,7 @@ class AsymKD_kd_naive_latent1_avg_ver(nn.Module):
         depth = self.nomalize(depth) if self.training else depth
 
         if self.training:
-            return depth, features[0]
+            return depth, intermediate_feature
 
         return depth
     
