@@ -2,6 +2,7 @@ from __future__ import print_function, division
 import os
 import argparse
 import logging
+import random
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
@@ -188,63 +189,9 @@ def fetch_optimizer(args, model):
 
     return optimizer, scheduler
 
-
 class Logger:
-
-    SUM_FREQ = 100
-
-    def __init__(self, model, scheduler):
-        self.model = model
-        self.scheduler = scheduler
-        self.total_steps = 0
-        self.running_loss = {}
-        self.writer = SummaryWriter(log_dir='runs')
-
-    def _print_training_status(self):
-        metrics_data = [self.running_loss[k]/Logger.SUM_FREQ for k in sorted(self.running_loss.keys())]
-        training_str = "[{:6d}, {:10.7f}] ".format(self.total_steps+1, self.scheduler.get_last_lr()[0])
-        metrics_str = ("{:10.4f}, "*len(metrics_data)).format(*metrics_data)
-        
-        # print the training status
-        logging.info(f"Training Metrics ({self.total_steps}): {training_str + metrics_str}")
-
-        if self.writer is None:
-            self.writer = SummaryWriter(log_dir='runs')
-
-        for k in self.running_loss:
-            self.writer.add_scalar(k, self.running_loss[k]/Logger.SUM_FREQ, self.total_steps)
-            self.running_loss[k] = 0.0
-
-    def push(self, metrics):
-        self.total_steps += 1
-
-        for key in metrics:
-            if key not in self.running_loss:
-                self.running_loss[key] = 0.0
-
-            self.running_loss[key] += metrics[key]
-
-        if self.total_steps % Logger.SUM_FREQ == Logger.SUM_FREQ-1:
-            self._print_training_status()
-            self.running_loss = {}
-
-    def write_dict(self, results):
-        if self.writer is None:
-            self.writer = SummaryWriter(log_dir='runs')
-
-        for key in results:
-            self.writer.add_scalar(key, results[key], self.total_steps)
-
-    def close(self):
-        self.writer.close()
-
-
-class Val_Logger:
-    def __init__(self, rank):
-        self.metric_history = {
-            "compress": {},
-            "student": {},
-        }
+    def __init__(self, rank, keys):
+        self.metric_history = {k: {} for k in keys}
         self.writer = SummaryWriter(log_dir='runs') if rank == 0 else None
 
     def push(
@@ -253,7 +200,7 @@ class Val_Logger:
         model_type: str,
     ):
         if self.writer is None: return
-        assert model_type in ["compress", "student"], f"Invalid model type: {model_type}"
+        assert model_type in self.metric_history.keys(), f"Invalid model type: {model_type}"
         for key in metrics:
             if key not in self.metric_history[model_type]:
                 self.metric_history[model_type][key] = 0.0
@@ -261,16 +208,25 @@ class Val_Logger:
     
     def flush(self, model_type: str):
         if self.writer is None: return
-        assert model_type in ["compress", "student"], f"Invalid model type: {model_type}"
+        assert model_type in self.metric_history.keys(), f"Invalid model type: {model_type}"
         self.metric_history[model_type] = {}
     
     def upload(self, model_type: str, total_samples: int, total_steps: int):
+        if self.writer is None: return
         for k in self.metric_history[model_type]:
-            self.writer.add_scalar(f"{k}/{model_type}", self.metric_history[model_type][k]/total_samples, total_steps)
+            self.add_scalar(f"metrics/{k}/{model_type}", self.metric_history[model_type][k]/total_samples, total_steps)
 
     def close(self):
         if self.writer is None: return
         self.writer.close()
+    
+    def add_scalar(self, name, value, step):
+        if self.writer is None: return
+        self.writer.add_scalar(name, value, step)
+    
+    def add_image(self, name, image, step):
+        if self.writer is None: return
+        self.writer.add_image(name, image, step)
 
 class State(object):
     def __init__(self, model, optimizer, scheduler):
@@ -302,6 +258,11 @@ def train(rank, world_size, args):
         setup(rank, world_size)
         torch.cuda.set_device(rank)
         torch.cuda.empty_cache()
+        random.seed(1234)
+        np.random.seed(1234)
+        torch.manual_seed(1234)
+        torch.cuda.manual_seed(1234)
+        torch.cuda.manual_seed_all(1234)
 
         # init scalars
         save_step = 250
@@ -333,9 +294,7 @@ def train(rank, world_size, args):
         train_loader, val_loader = datasets.fetch_dataloader(args,rank, world_size)
         optimizer, scheduler = fetch_optimizer(args, model)
         scaler = GradScaler(enabled=args.mixed_precision)
-        logger = Logger(model, scheduler)
-        
-        val_logger = Val_Logger(rank)
+        logger = Logger(rank, keys=["val_compress", "val_student", "train_compress"])
 
         state = State(model, optimizer, scheduler)
 
@@ -349,7 +308,8 @@ def train(rank, world_size, args):
             state.load(args.restore_ckpt, rank)
 
         while total_steps < args.num_steps:
-            for i_batch, data_blob in enumerate(tqdm(train_loader)):
+            for i_batch, data_blob in enumerate(pbar := tqdm(train_loader)):
+                pbar.set_description(f"Epoch {epoch}")
                 # if(pass_num>0):
                 #     pass_num -= 1
                 #     continue
@@ -383,11 +343,11 @@ def train(rank, world_size, args):
                 scaler.update()
 
                 if rank == 0:
-                    logger.writer.add_scalar("live_loss", l_si.item(), total_steps)
-                    logger.writer.add_scalar("gradient_matching_loss", l_grad.item(), total_steps)
-                    logger.writer.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], total_steps)
+                    logger.add_scalar("live_loss", l_si.item(), total_steps)
+                    logger.add_scalar("gradient_matching_loss", l_grad.item(), total_steps)
+                    logger.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], total_steps)
                     _ , metrics = sequence_loss(flow_predictions, flow, valid.bool().unsqueeze(1))
-                    logger.push(metrics)
+                    logger.push(metrics, "train_compress")
 
                     if(total_steps % 10 == 10-1):
                         # inference visualization in tensorboard while training
@@ -400,9 +360,9 @@ def train(rank, world_size, args):
                         pred = flow_predictions[0].cpu().detach().numpy()
                         pred = ((pred - np.min(pred)) / (np.max(pred) - np.min(pred))) * 255
             
-                        logger.writer.add_image('RGB', rgb.astype(np.uint8), total_steps)
-                        logger.writer.add_image('GT', gt.astype(np.uint8), total_steps)
-                        logger.writer.add_image('Prediction', pred.astype(np.uint8), total_steps)
+                        logger.add_image('RGB', rgb.astype(np.uint8), total_steps)
+                        logger.add_image('GT', gt.astype(np.uint8), total_steps)
+                        logger.add_image('Prediction', pred.astype(np.uint8), total_steps)
 
                     if total_steps % save_step == save_step-1:
                         save_path = Path(f"checkpoint_depth_latent1_avg_ver/{total_steps + 1}_{args.name}.pth")
@@ -423,21 +383,22 @@ def train(rank, world_size, args):
                         with torch.no_grad():
                             pred_depths = AsymKD_Compress.forward_val(depth_image)
                             results = [sequence_loss(pred_depth, flow, valid.bool().unsqueeze(1)) for pred_depth in pred_depths]
-                            for model_type, result in zip(["compress", "student"], results):
+                            for model_type, result in zip(["val_compress", "val_student"], results):
                                 loss, metrics = result
-                                val_logger.push(metrics, model_type)
+                                logger.push(metrics, model_type)
 
-                    for model_type in ["compress", "student"]:
-                        val_logger.upload(model_type, len(val_loader.dataset), total_steps)
-                        val_logger.flush(model_type)
+                    for model_type in ["val_compress", "val_student"]:
+                        logger.upload(model_type, len(val_loader.dataset), total_steps)
+                        logger.flush(model_type)
                     model.train()
+                    logger.upload("train_compress", 250, total_steps)
+                    logger.flush("train_compress")
 
                 total_steps += 1
             epoch += 1      
 
         print("FINISHED TRAINING")
         logger.close()
-        val_logger.close()
         state.save(f"checkpoint_depth_latent1_avg_ver/{args.name}.pth")
         return None
     finally:
@@ -480,9 +441,6 @@ if __name__ == '__main__':
     parser.add_argument('--spatial_scale', type=float, nargs='+', default=[0, 0], help='re-scale the images randomly')
     parser.add_argument('--noyjitter', action='store_true', help='don\'t simulate imperfect rectification')
     args = parser.parse_args()
-
-    torch.manual_seed(1234)
-    np.random.seed(1234)
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
