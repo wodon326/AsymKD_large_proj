@@ -161,12 +161,6 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
             self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(encoder))
 
         
-        for i, (name, param) in enumerate(self.teacher_pretrained.named_parameters()):
-            param.requires_grad = False
-
-        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
-            param.requires_grad = False
-
         dim = self.pretrained.blocks[0].attn.qkv.in_features
 
         
@@ -222,10 +216,8 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         
 
         self.depth_head = DPTHead(1, dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
-        for i, (name, param) in enumerate(self.depth_head.named_parameters()):
-            param.requires_grad = False
         
-        self.pretrained.unfreeze_last_n_blocks(n = 3)
+        # self.pretrained.unfreeze_last_n_blocks(n = 3)
 
         self.nomalize = NormalizeLayer()
 
@@ -250,6 +242,48 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         depth = self.nomalize(depth) if self.training else depth
 
         return depth
+    
+    def forward_val(self, x):
+        h, w = x.shape[-2:]
+
+        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
+        teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
+        
+        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
+        patch_h, patch_w = h // 14, w // 14
+
+        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
+        feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
+        feat = self.Projects_layers_Self(feat)
+
+        features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 3, return_class_token=False)
+
+        depth = self.depth_head(features, patch_h, patch_w)
+        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
+        depth = F.relu(depth)
+        depth = self.nomalize(depth) if self.training else depth
+
+
+
+        student_features = self.pretrained.get_intermediate_layers_start_intermediate(student_intermediate_feature, 3, return_class_token=False)
+
+        student_depth = self.depth_head(student_features, patch_h, patch_w)
+        student_depth = F.interpolate(student_depth, size=(h, w), mode="bilinear", align_corners=True)
+        student_depth = F.relu(student_depth)
+        student_depth = self.nomalize(student_depth) if self.training else student_depth
+
+        return [depth, student_depth]
+    
+    def freeze_depth_latent1_style(self):
+        for i, (name, param) in enumerate(self.teacher_pretrained.named_parameters()):
+            param.requires_grad = False
+
+        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
+            param.requires_grad = False
+
+        for i, (name, param) in enumerate(self.depth_head.named_parameters()):
+            param.requires_grad = False
+
 
     def diffusion_encode(self, x):
         h, w = x.shape[-2:]
@@ -372,12 +406,6 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
 
         model_state_dict.update(new_state_dict)
         self.load_state_dict(model_state_dict)
-
-        for i, (name, param) in enumerate(self.teacher_pretrained.named_parameters()):
-            param.requires_grad = False
-
-        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
-            param.requires_grad = False
         
         return None
 
@@ -409,9 +437,9 @@ class NormalizeLayer(nn.Module):
         super(NormalizeLayer, self).__init__()
     
     def forward(self, x):
-        min_val = x.min()
-        max_val = x.max()
-        x = (x - min_val) / (max_val - min_val + 1e-6)  # 작은 값을 더하여 0으로 나누는 것을 방지합니다.
+        min_val = x.amin(dim=(1, 2, 3), keepdim=True)  # 각 배치별 최소값
+        max_val = x.amax(dim=(1, 2, 3), keepdim=True)  # 각 배치별 최대값
+        x = (x - min_val) / (max_val - min_val + 1e-6)
         return x
 
 if __name__ == '__main__':

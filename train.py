@@ -14,8 +14,9 @@ import torch.optim as optim
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
-from AsymKD.dpt_latent1_student_teacher_avg_ver import AsymKD_compress_latent1_student_teacher_avg_ver
+from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss
+from dataset.util.alignment_gpu import align_depth_least_square
 
 import core.AsymKD_datasets as datasets
 import gc
@@ -83,10 +84,16 @@ def compute_errors(flow_gt, flow_preds, valid_arr):
     max_depth_eval = 1
 
     for gt, pred, valid in zip(flow_gt, flow_preds, valid_arr):
-
+        
+        disparity_pred, scale, shift = align_depth_least_square(
+            gt_arr=gt,
+            pred_arr=pred,
+            valid_mask_arr=valid,
+            return_scale_shift=True,
+        )
         gt = gt.squeeze().cpu().numpy()
-        pred = pred.clone().squeeze().cpu().detach().numpy()
-        valid = valid.squeeze().cpu()        
+        pred = disparity_pred.clone().squeeze().cpu().detach().numpy()
+        valid = valid.squeeze().cpu()             
         pred[pred < min_depth_eval] = min_depth_eval
         pred[pred > max_depth_eval] = max_depth_eval
         pred[np.isinf(pred)] = max_depth_eval
@@ -146,18 +153,13 @@ def compute_errors(flow_gt, flow_preds, valid_arr):
     #             silog=silog_arr_mean, sq_rel=sq_rel_arr_mean)
     return dict(a1=a1_arr_mean, a2=a2_arr_mean, a3=a3_arr_mean, abs_rel=abs_rel_arr_mean, rmse=rmse_arr_mean, sq_rel=sq_rel_arr_mean)
 
-def sequence_loss(flow_preds, flow_gt, valid, max_flow=700):
+def sequence_loss(flow_preds, flow_gt, valid):
     """ Loss function defined over sequence of flow predictions """
 
     n_predictions = len(flow_preds)
     assert n_predictions >= 1
     flow_loss = 0.0
 
-    # exlude invalid pixels and extremely large diplacements
-    mag = torch.sum(flow_gt**2, dim=1).sqrt()
-
-    # exclude extremly large displacements
-    valid = ((valid >= 0.5) & (mag < max_flow)).unsqueeze(1)
     assert valid.shape == flow_gt.shape, [valid.shape, flow_gt.shape]
     assert not torch.isinf(flow_gt[valid.bool()]).any()
 
@@ -236,6 +238,40 @@ class Logger:
     def close(self):
         self.writer.close()
 
+
+class Val_Logger:
+    def __init__(self, rank):
+        self.metric_history = {
+            "compress": {},
+            "student": {},
+        }
+        self.writer = SummaryWriter(log_dir='runs') if rank == 0 else None
+
+    def push(
+        self, 
+        metrics: dict[str, float], 
+        model_type: str,
+    ):
+        if self.writer is None: return
+        assert model_type in ["compress", "student"], f"Invalid model type: {model_type}"
+        for key in metrics:
+            if key not in self.metric_history[model_type]:
+                self.metric_history[model_type][key] = 0.0
+            self.metric_history[model_type][key] += metrics[key]
+    
+    def flush(self, model_type: str):
+        if self.writer is None: return
+        assert model_type in ["compress", "student"], f"Invalid model type: {model_type}"
+        self.metric_history[model_type] = {}
+    
+    def upload(self, model_type: str, total_samples: int, total_steps: int):
+        for k in self.metric_history[model_type]:
+            self.writer.add_scalar(f"{k}/{model_type}", self.metric_history[model_type][k]/total_samples, total_steps)
+
+    def close(self):
+        if self.writer is None: return
+        self.writer.close()
+
 class State(object):
     def __init__(self, model, optimizer, scheduler):
         self.model = model
@@ -244,7 +280,7 @@ class State(object):
 
     def capture(self):
         return {
-            'model_state_dict': self.model.state_dict(),
+            'model_state_dict': self.model.module.state_dict() if isinstance(self.model, DDP) else self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict(),
         }
@@ -273,12 +309,17 @@ def train(rank, world_size, args):
         epoch = 0
 
         # load model
-        AsymKD_Compress = AsymKD_compress_latent1_student_teacher_avg_ver().to(rank)
+        AsymKD_Compress = AsymKD_compress_latent1_avg_ver().to(rank)
         student_ckpt = 'depth_anything_vits14.pth'
         teacher_ckpt = 'depth_anything_vitl14.pth'
         if rank == 0:
             logging.info(f"loading backbones from {student_ckpt} and {teacher_ckpt}")
         AsymKD_Compress.load_backbone_from_ckpt(student_ckpt, teacher_ckpt, device=torch.device('cuda', rank))
+        AsymKD_Compress.freeze_depth_latent1_style()
+        
+        if rank == 0:
+            for n, p in AsymKD_Compress.named_parameters():
+                print(f'{n} : {p.requires_grad}')
         AsymKD_Compress = torch.nn.SyncBatchNorm.convert_sync_batchnorm(AsymKD_Compress)
         #model.module.freeze_bn() # We keep BatchNorm frozen
         model = DDP(AsymKD_Compress, device_ids=[rank])
@@ -289,10 +330,13 @@ def train(rank, world_size, args):
             logging.info("AsymKD_VIT Train")
         
         # load others
-        train_loader = datasets.fetch_dataloader(args,rank, world_size)
+        train_loader, val_loader = datasets.fetch_dataloader(args,rank, world_size)
         optimizer, scheduler = fetch_optimizer(args, model)
         scaler = GradScaler(enabled=args.mixed_precision)
         logger = Logger(model, scheduler)
+        
+        val_logger = Val_Logger(rank)
+
         state = State(model, optimizer, scheduler)
 
         # load loss
@@ -323,7 +367,7 @@ def train(rank, world_size, args):
                     l_grad = grad_loss(scaled_pred, flow, mask=valid.bool().unsqueeze(1))
                     loss = loss + 0.001 * l_grad
                 except Exception as e:
-                    loss, _ = sequence_loss(flow_predictions, flow, valid)
+                    loss, _ = sequence_loss(flow_predictions, flow, valid.bool().unsqueeze(1))
 
                     filename = 'Exception_catch.txt'
                     a = open(filename, 'a')
@@ -342,7 +386,7 @@ def train(rank, world_size, args):
                     logger.writer.add_scalar("live_loss", l_si.item(), total_steps)
                     logger.writer.add_scalar("gradient_matching_loss", l_grad.item(), total_steps)
                     logger.writer.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], total_steps)
-                    _ , metrics = sequence_loss(flow_predictions, flow, valid)
+                    _ , metrics = sequence_loss(flow_predictions, flow, valid.bool().unsqueeze(1))
                     logger.push(metrics)
 
                     if(total_steps % 10 == 10-1):
@@ -369,11 +413,31 @@ def train(rank, world_size, args):
                     torch.cuda.empty_cache()
                     gc.collect()
 
+                if rank == 0 and total_steps % 250 == 250 - 1:
+                    model.eval()
+                    vbar = tqdm(val_loader)
+                    vbar.set_description(f"Validation")
+                    for data_blob in vbar:
+                        depth_image, flow, valid = [x.cuda() for x in data_blob]
+                        h, w = depth_image.shape[-2:]
+                        with torch.no_grad():
+                            pred_depths = AsymKD_Compress.forward_val(depth_image)
+                            results = [sequence_loss(pred_depth, flow, valid.bool().unsqueeze(1)) for pred_depth in pred_depths]
+                            for model_type, result in zip(["compress", "student"], results):
+                                loss, metrics = result
+                                val_logger.push(metrics, model_type)
+
+                    for model_type in ["compress", "student"]:
+                        val_logger.upload(model_type, len(val_loader.dataset), total_steps)
+                        val_logger.flush(model_type)
+                    model.train()
+
                 total_steps += 1
             epoch += 1      
 
         print("FINISHED TRAINING")
         logger.close()
+        val_logger.close()
         state.save(f"checkpoint_depth_latent1_avg_ver/{args.name}.pth")
         return None
     finally:

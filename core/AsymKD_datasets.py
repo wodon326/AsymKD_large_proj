@@ -378,14 +378,17 @@ class BlendedMVS(StereoDataset):
         super().__init__(aug_params, sparse=True, reader=frame_utils.readDispBlendedMVS)
         assert os.path.exists(root)
 
-        images = sorted( glob(osp.join(root, '*/blended_images/*_masked.jpg')) )
+        # images = sorted( glob(osp.join(root, '*/blended_images/*_masked.jpg')) )
         # images = [img.replace('_masked', '') for img in images]
+        images = sorted(glob(osp.join(root, '*/blended_images/*.jpg')))
+        images = [img for img in images if '_masked' not in osp.basename(img)]
+        images = sorted(images)
         disparities = sorted( glob(osp.join(root, '*/rendered_depth_maps/*.pfm')) )
 
         for img, disp in zip(images, disparities):
             self.image_list += [ img ]
             self.disparity_list += [ disp ]
-            if (img.replace('_masked', '').replace('blended_images','rendered_depth_maps').replace('jpg','pfm') != disp):
+            if (img.replace('blended_images','rendered_depth_maps').replace('jpg','pfm') != disp):
                 print("Error : ", img, disp)
                 quit()
 
@@ -500,15 +503,16 @@ def fetch_dataloader(args, rank, world_size):
         train_dataset = new_dataset if train_dataset is None else train_dataset + new_dataset
         new_dataset.check_item()
 
-    # dataset_size = len(train_dataset)
-    # train_size = int(0.15 * dataset_size)
-    # val_size = dataset_size - train_size
+    dataset_size = len(train_dataset)
+    train_size = int(0.999 * dataset_size)
+    val_size = dataset_size - train_size
 
-    # # 데이터셋 분할
-    # train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
+    # 데이터셋 분할
+    train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
 
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
     train_loader = data.DataLoader(train_dataset, batch_size=args.batch_size, drop_last=True, collate_fn=collate_fn, num_workers = 16, sampler = sampler, pin_memory=True, persistent_workers=True)
+    val_loader = data.DataLoader(val_dataset, batch_size=1, drop_last=False, collate_fn=collate_fn, num_workers = 0, pin_memory=True)
     #num_workers=int(os.environ.get('SLURM_CPUS_PER_TASK', 6))-2
     logging.info('Training with %d images' % len(train_dataset))
-    return train_loader
+    return train_loader, val_loader

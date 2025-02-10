@@ -16,6 +16,7 @@ eval_result*
 Exception_catch.txt
 output/
 
+feature_visualize_Fourier_output/
 # Created by https://www.toptal.com/developers/gitignore/api/python,visualstudiocode
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,visualstudiocode
 

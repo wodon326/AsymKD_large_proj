@@ -280,7 +280,7 @@ def train(rank, world_size, args):
         epoch = 0
 
         # loss parameter
-        alpha = 0
+        alpha = 0.2
 
 
         # load model
