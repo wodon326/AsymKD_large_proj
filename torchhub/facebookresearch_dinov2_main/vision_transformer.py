@@ -265,6 +265,15 @@ class DinoVisionTransformer(nn.Module):
 
         return x
     
+    def freeze_last_n_blocks(self, n):
+        total_block_len = len(self.blocks)
+        for blk in enumerate(self.blocks[total_block_len - n:]):
+            # print(blk)
+            for i, (name, param) in enumerate(blk[1].named_parameters()):
+                param.requires_grad = False
+        for i, (name, param) in enumerate(self.norm.named_parameters()):
+            param.requires_grad = False
+
     def unfreeze_last_n_blocks(self, n):
         total_block_len = len(self.blocks)
         for blk in enumerate(self.blocks[total_block_len - n:]):

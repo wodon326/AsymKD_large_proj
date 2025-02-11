@@ -284,10 +284,10 @@ def train(rank, world_size, args):
 
         # load model
         AsymKD_CNN_hybrid = AsymKD_kd_naive_dpt_latent1_cnn_hybrid().to(rank)
-        student_ckpt = 'depth_anything_vits14.pth'
+        new_state_dict = AsymKD_CNN_hybrid.load_ckpt(ckpt, device=torch.device('cuda', rank))
         if rank == 0:
-            logging.info(f"loading backbones from {student_ckpt}")
-        AsymKD_CNN_hybrid.load_backbone_from_ckpt(student_ckpt, device=torch.device('cuda', rank))
+            logging.info(f"loading backbones from {ckpt}")
+            print('AsymKD_CNN_hybrid : ', new_state_dict.keys())
         AsymKD_CNN_hybrid.freeze_kd_naive_dpt_latent1_cnn_hybrid_style()
         
         if rank == 0:
@@ -295,7 +295,7 @@ def train(rank, world_size, args):
                 print(f'{n} : {p.requires_grad}')
         AsymKD_CNN_hybrid = torch.nn.SyncBatchNorm.convert_sync_batchnorm(AsymKD_CNN_hybrid)
         #model.module.freeze_bn() # We keep BatchNorm frozen
-        model = DDP(AsymKD_CNN_hybrid, device_ids=[rank])
+        model = DDP(AsymKD_CNN_hybrid, device_ids=[rank],find_unused_parameters=True)
         model.train()
         
         if rank == 0:
@@ -398,7 +398,10 @@ def train(rank, world_size, args):
                     torch.cuda.empty_cache()
                     gc.collect()
 
-                if rank == 0 and total_steps % 250 == 250 - 1:
+                if rank == 0 and total_steps % 500 == 500 - 1:
+                    logger.upload("train_student", 500, total_steps)
+                    logger.flush("train_student")
+                if rank == 0 and total_steps % 1000 == 1000 - 1:
                     model.eval()
                     vbar = tqdm(val_loader)
                     vbar.set_description(f"Validation")
@@ -407,6 +410,7 @@ def train(rank, world_size, args):
                         h, w = depth_image.shape[-2:]
                         with torch.no_grad():
                             pred_depths = AsymKD_CNN_hybrid.forward_val(depth_image)
+                            pred_depths.append(AsymKD_Compress(depth_image))
                             results = [sequence_loss(pred_depth, flow, valid.bool().unsqueeze(1)) for pred_depth in pred_depths]
                             for model_type, result in zip(["val_student", "val_small", "val_compress"], results):
                                 loss, metrics = result
@@ -416,8 +420,6 @@ def train(rank, world_size, args):
                         logger.upload(model_type, len(val_loader.dataset), total_steps)
                         logger.flush(model_type)
                     model.train()
-                    logger.upload("train_student", 250, total_steps)
-                    logger.flush("train_student")
 
                 total_steps += 1
             epoch += 1      

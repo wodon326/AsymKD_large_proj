@@ -511,7 +511,7 @@ def fetch_dataloader(args, rank, world_size):
     train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
 
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
-    train_loader = data.DataLoader(train_dataset, batch_size=args.batch_size, drop_last=True, collate_fn=collate_fn, num_workers = 16, sampler = sampler, pin_memory=True, persistent_workers=True)
+    train_loader = data.DataLoader(train_dataset, batch_size=args.batch_size, drop_last=True, collate_fn=collate_fn, num_workers = 16, sampler = sampler, pin_memory=True)
     val_loader = data.DataLoader(val_dataset, batch_size=1, drop_last=False, collate_fn=collate_fn, num_workers = 0, pin_memory=True)
     #num_workers=int(os.environ.get('SLURM_CPUS_PER_TASK', 6))-2
     logging.info('Training with %d images' % len(train_dataset))
