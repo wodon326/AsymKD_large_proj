@@ -15,11 +15,12 @@ import torch.optim as optim
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
-from AsymKD.kd_naive_dpt_latent1_cnn_hybrid import AsymKD_kd_naive_dpt_latent1_cnn_hybrid
-from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss
+from AsymKD.kd_naive_dpt_latent1_avg_ver import AsymKD_kd_naive_latent1_avg_ver
+from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
+from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss, PKDLoss
 from dataset.util.alignment_gpu import align_depth_least_square
 
-import core.AsymKD_datasets as datasets
+import core.AsymKD_datasets_kd as datasets
 import gc
 
 import torch.nn.functional as F
@@ -41,7 +42,7 @@ except:
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '12354'
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 def cleanup():
@@ -215,7 +216,7 @@ class Logger:
     def upload(self, model_type: str, total_samples: int, total_steps: int):
         if self.writer is None: return
         for k in self.metric_history[model_type]:
-            self.add_scalar(f"metrics/{k}/{model_type}", self.metric_history[model_type][k]/total_samples, total_steps)
+            self.add_scalar(f"metrics_kd_more_data/{k}/{model_type}", self.metric_history[model_type][k]/total_samples, total_steps)
 
     def close(self):
         if self.writer is None: return
@@ -242,17 +243,17 @@ class State(object):
             'scheduler_state_dict': self.scheduler.state_dict(),
         }
     
-    def apply_snapshot(self, obj, device):
-        self.model.load_state_dict(obj['model_state_dict'].to(device), strict=False)
-        self.optimizer.load_state_dict(obj['optimizer_state_dict'].to(device))
-        self.scheduler.load_state_dict(obj['scheduler_state_dict'].to(device))
+    def apply_snapshot(self, obj):
+        self.model.load_state_dict(obj['model_state_dict'], strict=False)
+        self.optimizer.load_state_dict(obj['optimizer_state_dict'])
+        self.scheduler.load_state_dict(obj['scheduler_state_dict'])
     
     def save(self, path):
         torch.save(self.capture(), path)
     
     def load(self, path, device):
-        obj = torch.load(path, map_location=torch.device('cpu'))
-        self.apply_snapshot(obj, device)
+        obj = torch.load(path, map_location=device)
+        self.apply_snapshot(obj)
 
 def train(rank, world_size, args):
     try:
@@ -266,24 +267,35 @@ def train(rank, world_size, args):
         torch.cuda.manual_seed_all(1234)
 
         # init scalars
-        save_step = 250
+        save_step = 500
         total_steps = 0
         epoch = 0
+        # loss parameter
+        # alpha = 0.2
 
         # load model
-        AsymKD_CNN_hybrid = AsymKD_kd_naive_dpt_latent1_cnn_hybrid().to(rank)
-        student_ckpt = 'depth_anything_vits14.pth'
+        AsymKD_Compress = AsymKD_compress_latent1_avg_ver().to(rank)
+        AsymKD_Compress.eval()
+        ckpt = args.ckpt
+        new_state_dict = AsymKD_Compress.load_ckpt(ckpt, device=torch.device('cuda', rank))
         if rank == 0:
-            logging.info(f"loading backbones from {student_ckpt}")
-        AsymKD_CNN_hybrid.load_backbone_from_ckpt(student_ckpt, device=torch.device('cuda', rank))
-        AsymKD_CNN_hybrid.freeze_dpt_latent1_cnn_hybrid_style()
+            logging.info(f"loading backbones from {ckpt}")
+            print('AsymKD_Compress : ', new_state_dict.keys())
+
+        # load model
+        AsymKD_naive_kd = AsymKD_kd_naive_latent1_avg_ver().to(rank)
+        new_state_dict = AsymKD_naive_kd.load_ckpt(ckpt, device=torch.device('cuda', rank))
+        if rank == 0:
+            logging.info(f"loading backbones from {ckpt}")
+            print('AsymKD_naive_kd : ', new_state_dict.keys())
+        AsymKD_naive_kd.freeze_kd_naive_dpt_latent1_with_kd_style()
         
         if rank == 0:
-            for n, p in AsymKD_CNN_hybrid.named_parameters():
+            for n, p in AsymKD_naive_kd.named_parameters():
                 print(f'{n} : {p.requires_grad}')
-        AsymKD_CNN_hybrid = torch.nn.SyncBatchNorm.convert_sync_batchnorm(AsymKD_CNN_hybrid)
+        AsymKD_naive_kd = torch.nn.SyncBatchNorm.convert_sync_batchnorm(AsymKD_naive_kd)
         #model.module.freeze_bn() # We keep BatchNorm frozen
-        model = DDP(AsymKD_CNN_hybrid, device_ids=[rank])
+        model = DDP(AsymKD_naive_kd, device_ids=[rank],find_unused_parameters=True)
         model.train()
         
         if rank == 0:
@@ -294,18 +306,21 @@ def train(rank, world_size, args):
         train_loader, val_loader = datasets.fetch_dataloader(args,rank, world_size)
         optimizer, scheduler = fetch_optimizer(args, model)
         scaler = GradScaler(enabled=args.mixed_precision)
-        logger = Logger(rank, args.save_dir, keys=["val_compress", "val_student", "train_compress"])
+        logger = Logger(rank, args.save_dir, keys=["val_student", "val_compress"])
 
         state = State(model, optimizer, scheduler)
 
         # load loss
         SSILoss = ScaleAndShiftInvariantLoss()
         grad_loss = GradL1Loss()
+        pkd_loss = PKDLoss()
 
         # load snapshot
         if args.restore_ckpt is not None:
             assert args.restore_ckpt.endswith(".pth")
-            state.load(args.restore_ckpt, rank)
+            state.load(args.restore_ckpt, torch.device('cuda', rank))
+            total_steps = 14500
+
 
         while total_steps < args.num_steps:
             for i_batch, data_blob in enumerate(pbar := tqdm(train_loader)):
@@ -316,24 +331,31 @@ def train(rank, world_size, args):
                 optimizer.zero_grad()
                 depth_image, flow, valid = [x.cuda() for x in data_blob]
                 assert model.training
-                flow_predictions, _ = model(depth_image)
+                flow_predictions, student_feature = model(depth_image)
                 assert model.training
                 # loss, metrics = sequence_loss(flow_predictions, flow, valid)
 
-                try:
-                    l_si, scaled_pred = SSILoss(
-                        flow_predictions, flow, mask=valid.bool(), interpolate=True, return_interpolated=True)
-                    loss = 0.85 * l_si
-                    l_grad = grad_loss(scaled_pred, flow, mask=valid.bool().unsqueeze(1))
-                    loss = loss + 0.001 * l_grad
-                except Exception as e:
-                    loss, _ = sequence_loss(flow_predictions, flow, valid.bool().unsqueeze(1))
+                with torch.no_grad():
+                    teacher_prediction, teacher_feature = AsymKD_Compress.forward_with_compress_feat(depth_image)
 
-                    filename = 'Exception_catch.txt'
-                    a = open(filename, 'a')
-                    a.write(str(e)+'\n')
-                    a.close()
+                # try:
+                #     l_si, scaled_pred = SSILoss(
+                #         flow_predictions, flow, mask=valid.bool(), interpolate=True, return_interpolated=True)
+                #     loss = 0.85 * l_si
+                #     l_grad = grad_loss(scaled_pred, flow, mask=valid.bool().unsqueeze(1))
+                #     loss = loss + 0.001 * l_grad
+                # except Exception as e:
+                #     loss, _ = sequence_loss(flow_predictions, flow, valid.bool().unsqueeze(1))
+
+                #     filename = 'Exception_catch.txt'
+                #     a = open(filename, 'a')
+                #     a.write(str(e)+'\n')
+                #     a.close()
                 
+                # feature_loss = pkd_loss(student_feature, teacher_feature)
+                feature_loss = F.mse_loss(student_feature, teacher_feature)
+                loss = feature_loss
+
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -343,11 +365,12 @@ def train(rank, world_size, args):
                 scaler.update()
 
                 if rank == 0:
-                    logger.add_scalar("live_loss", l_si.item(), total_steps)
-                    logger.add_scalar("gradient_matching_loss", l_grad.item(), total_steps)
+                    # logger.add_scalar("live_loss", l_si.item(), total_steps)
+                    logger.add_scalar("feature_loss", feature_loss.item(), total_steps)
+                    # logger.add_scalar("gradient_matching_loss", l_grad.item(), total_steps)
                     logger.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], total_steps)
-                    _ , metrics = sequence_loss(flow_predictions, flow, valid.bool().unsqueeze(1))
-                    logger.push(metrics, "train_compress")
+                    # _ , metrics = sequence_loss(flow_predictions, flow, valid.bool().unsqueeze(1))
+                    # logger.push(metrics, "train_student")
 
                     if(total_steps % 10 == 10-1):
                         # inference visualization in tensorboard while training
@@ -359,10 +382,14 @@ def train(rank, world_size, args):
             
                         pred = flow_predictions[0].cpu().detach().numpy()
                         pred = ((pred - np.min(pred)) / (np.max(pred) - np.min(pred))) * 255
+                        
+                        teacher_pred = teacher_prediction[0].cpu().detach().numpy()
+                        teacher_pred = ((teacher_pred - np.min(teacher_pred)) / (np.max(teacher_pred) - np.min(teacher_pred))) * 255
             
                         logger.add_image('RGB', rgb.astype(np.uint8), total_steps)
                         logger.add_image('GT', gt.astype(np.uint8), total_steps)
-                        logger.add_image('Prediction', pred.astype(np.uint8), total_steps)
+                        logger.add_image('Prediction/student', pred.astype(np.uint8), total_steps)
+                        logger.add_image('Prediction/teacher', teacher_pred.astype(np.uint8), total_steps)
 
                     if total_steps % save_step == save_step-1:
                         save_path = Path(f"checkpoint_{args.save_dir}/{total_steps + 1}_{args.name}.pth")
@@ -373,7 +400,10 @@ def train(rank, world_size, args):
                     torch.cuda.empty_cache()
                     gc.collect()
 
-                if rank == 0 and total_steps % 250 == 250 - 1:
+                # if rank == 0 and total_steps % 10 == 10 - 1:
+                #     logger.upload("train_student", 10, total_steps)
+                #     logger.flush("train_student")
+                if rank == 0 and total_steps  %  1500 == 1500 - 1:
                     model.eval()
                     vbar = tqdm(val_loader)
                     vbar.set_description(f"Validation")
@@ -381,18 +411,18 @@ def train(rank, world_size, args):
                         depth_image, flow, valid = [x.cuda() for x in data_blob]
                         h, w = depth_image.shape[-2:]
                         with torch.no_grad():
-                            pred_depths = AsymKD_CNN_hybrid.forward_val(depth_image)
+                            pred_depths = []
+                            pred_depths.append(model.module(depth_image))
+                            pred_depths.append(AsymKD_Compress(depth_image))
                             results = [sequence_loss(pred_depth, flow, valid.bool().unsqueeze(1)) for pred_depth in pred_depths]
-                            for model_type, result in zip(["val_compress", "val_student"], results):
+                            for model_type, result in zip(["val_student", "val_compress"], results):
                                 loss, metrics = result
                                 logger.push(metrics, model_type)
 
-                    for model_type in ["val_compress", "val_student"]:
+                    for model_type in ["val_student", "val_compress"]:
                         logger.upload(model_type, len(val_loader.dataset), total_steps)
                         logger.flush(model_type)
                     model.train()
-                    logger.upload("train_compress", 250, total_steps)
-                    logger.flush("train_compress")
 
                 total_steps += 1
             epoch += 1      
@@ -410,6 +440,7 @@ if __name__ == '__main__':
     parser.add_argument('--restore_ckpt', help="restore checkpoint")
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--epoch', type=int, default=3, help="length of training schedule.")
+    parser.add_argument('--ckpt', type=str, help="load_ckpt")
     parser.add_argument('--save_dir', type=str, help="save_dir")
 
     # Training parameters

@@ -139,12 +139,12 @@ class DPTHead(nn.Module):
         return out
         
         
-class AsymKD_kd_naive_latent1_avg_ver(nn.Module):
+class AsymKD_kd_naive_latent1_avg_ver_all_loss(nn.Module):
     def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(AsymKD_kd_naive_latent1_avg_ver, self).__init__()
+        super(AsymKD_kd_naive_latent1_avg_ver_all_loss, self).__init__()
         
         assert encoder in ['vits', 'vitb', 'vitl']
-        print('AsymKD_kd_naive_latent1_avg_ver')
+        print('AsymKD_kd_naive_latent1_avg_ver_all_loss')
 
         # in case the Internet connection is not stable, please load the DINOv2 locally
         if localhub:
@@ -159,25 +159,8 @@ class AsymKD_kd_naive_latent1_avg_ver(nn.Module):
 
         self.nomalize = NormalizeLayer()
 
+
     def forward(self, x):
-        h, w = x.shape[-2:]
-        
-        intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
-        patch_h, patch_w = h // 14, w // 14
-
-        features = self.pretrained.get_intermediate_layers_start_intermediate(intermediate_feature, 3, return_class_token=False)
-
-        depth = self.depth_head(features, patch_h, patch_w)
-        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
-        depth = F.relu(depth)
-        depth = self.nomalize(depth) if self.training else depth
-
-        if self.training:
-            return depth, intermediate_feature
-
-        return depth
-
-    def forward_return_all_feat(self, x):
         h, w = x.shape[-2:]
         
         intermediate_feature, blocks_feat = self.pretrained.get_first_intermediate_layers_all(x, 4)

@@ -351,6 +351,20 @@ class DinoVisionTransformer(nn.Module):
                 # print(f'index : {i}')
                 break
         return x
+    
+    def _get_first_intermediate_layers_not_chunked_all(self, x, n=1):
+        x = self.prepare_tokens_with_masks(x)
+        # If n is an int, take the n last blocks. If it's a list, take them
+        total_block_len = len(self.blocks)
+        blocks_to_take = range(total_block_len - n, total_block_len) if isinstance(n, int) else n
+        blocks_feat_arr = []
+        for i, blk in enumerate(self.blocks):
+            x = blk(x)
+            blocks_feat_arr.append(x)
+            if i in blocks_to_take:
+                # print(f'index : {i}')
+                break
+        return x, blocks_feat_arr
 
     def _get_intermediate_layers_not_chunked_start_intermediate(self, x, n=1):
         # If n is an int, take the n last blocks. If it's a list, take them
@@ -409,6 +423,18 @@ class DinoVisionTransformer(nn.Module):
         
         output = self._get_first_intermediate_layers_not_chunked(x, n)
         return output[:, 1 + self.num_register_tokens:]
+    
+    def get_first_intermediate_layers_all(
+        self,
+        x: torch.Tensor,
+        n: Union[int, Sequence] = 1,  # Layers or n last layers to take
+    ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]]]:
+        
+        output, temp_arr = self._get_first_intermediate_layers_not_chunked_all(x, n)
+        blocks_feat = []
+        for feat in temp_arr:
+            blocks_feat.append(feat[:, 1 + self.num_register_tokens:])
+        return output[:, 1 + self.num_register_tokens:], blocks_feat
     
     def get_first_intermediate_layers_seg(
         self,

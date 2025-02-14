@@ -243,7 +243,7 @@ class AsymKD_kd_naive_dpt_latent1_cnn_hybrid(nn.Module):
 
         return [depth, small_depth]
     
-    def freeze_kd_naive_dpt_latent1_cnn_hybrid_style(self):
+    def freeze_kd_naive_dpt_latent1_cnn_hybrid_with_kd_style(self):
         
         # for i, (name, param) in enumerate(self.pretrained.named_parameters()):
         #     param.requires_grad = False
@@ -252,6 +252,16 @@ class AsymKD_kd_naive_dpt_latent1_cnn_hybrid(nn.Module):
             param.requires_grad = False
 
         self.pretrained.freeze_last_n_blocks(n = 3)
+        
+    def freeze_dpt_latent1_cnn_hybrid_style(self):
+        
+        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
+            param.requires_grad = False
+
+        for i, (name, param) in enumerate(self.depth_head.named_parameters()):
+            param.requires_grad = False
+
+        # self.pretrained.freeze_last_n_blocks(n = 3)
         
     
     def load_backbone_from_ckpt(
