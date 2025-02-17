@@ -20,7 +20,7 @@ from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss, PKDLoss
 from dataset.util.alignment_gpu import align_depth_least_square
 
-import core.AsymKD_datasets_kd as datasets
+import core.AsymKD_datasets_kd_cache as datasets
 import gc
 
 import torch.nn.functional as F
@@ -172,8 +172,8 @@ def sequence_loss(flow_preds, flow_gt, valid):
 
     
     return flow_loss, metrics
-
-
+import math
+from torch.optim.lr_scheduler import LambdaLR
 def fetch_optimizer(args, model):
     """ Create the optimizer and learning rate scheduler """
 
@@ -182,13 +182,34 @@ def fetch_optimizer(args, model):
     # scheduler = optim.lr_scheduler.OneCycleLR(optimizer, args.lr, args.num_steps+100,
     #         pct_start=0.01, cycle_momentum=False, anneal_strategy='linear')
 
-    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wdecay, eps=1e-8)
+    # optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wdecay, eps=1e-8)
 
-    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, args.lr, args.num_steps+100,
-            cycle_momentum=True, base_momentum=0.85, max_momentum=0.95, 
-            div_factor=1, final_div_factor=10000, 
-            pct_start=0.7, three_phase=False, anneal_strategy='linear')
+    # scheduler = optim.lr_scheduler.OneCycleLR(optimizer, args.lr, args.num_steps+100,
+    #         cycle_momentum=True, base_momentum=0.85, max_momentum=0.95, 
+    #         div_factor=1, final_div_factor=10000, 
+    #         pct_start=0.7, three_phase=False, anneal_strategy='linear')
 
+    # return optimizer, scheduler
+    
+    optimizer = optim.AdamW(
+        model.parameters(), 
+        lr=args.lr, 
+        weight_decay=0.0001,
+        betas=(0.9, 0.95)
+    )
+    def lr_schedule(steps):
+        warmup_steps = args.num_steps * 0.02  # Warmup step 개수
+        total_steps = args.num_steps  # 전체 학습 step
+        
+        if steps < warmup_steps:
+            # Linear Warmup
+            return steps / warmup_steps
+        else:
+            # Cosine decay
+            progress = (steps - warmup_steps) / (total_steps - warmup_steps)
+            return 0.5 * (1 + math.cos(math.pi * progress))
+
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_schedule)  
     return optimizer, scheduler
 
 class Logger:
@@ -329,7 +350,7 @@ def train(rank, world_size, args):
                 #     pass_num -= 1
                 #     continue
                 optimizer.zero_grad()
-                depth_image, flow, valid = [x.cuda() for x in data_blob]
+                depth_image = data_blob.cuda()
                 assert model.training
                 flow_predictions, student_feature = model(depth_image)
                 assert model.training
@@ -377,8 +398,6 @@ def train(rank, world_size, args):
                         rgb = depth_image[0].cpu().detach().numpy()
                         rgb = ((rgb - np.min(rgb)) / (np.max(rgb) - np.min(rgb))) * 255
             
-                        gt = flow[0].cpu().detach().numpy()
-                        gt = ((gt - np.min(gt)) / (np.max(gt) - np.min(gt))) * 255
             
                         pred = flow_predictions[0].cpu().detach().numpy()
                         pred = ((pred - np.min(pred)) / (np.max(pred) - np.min(pred))) * 255
@@ -387,7 +406,6 @@ def train(rank, world_size, args):
                         teacher_pred = ((teacher_pred - np.min(teacher_pred)) / (np.max(teacher_pred) - np.min(teacher_pred))) * 255
             
                         logger.add_image('RGB', rgb.astype(np.uint8), total_steps)
-                        logger.add_image('GT', gt.astype(np.uint8), total_steps)
                         logger.add_image('Prediction/student', pred.astype(np.uint8), total_steps)
                         logger.add_image('Prediction/teacher', teacher_pred.astype(np.uint8), total_steps)
 
@@ -403,7 +421,7 @@ def train(rank, world_size, args):
                 # if rank == 0 and total_steps % 10 == 10 - 1:
                 #     logger.upload("train_student", 10, total_steps)
                 #     logger.flush("train_student")
-                if rank == 0 and total_steps  %  1500 == 1500 - 1:
+                if rank == 0 and total_steps  %  2000 == 2000 - 1:
                     model.eval()
                     vbar = tqdm(val_loader)
                     vbar.set_description(f"Validation")
