@@ -216,15 +216,13 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         
 
         self.depth_head = DPTHead(1, dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
-        
-        # self.pretrained.unfreeze_last_n_blocks(n = 3)
 
         self.nomalize = NormalizeLayer()
 
     def forward(self, x):
         h, w = x.shape[-2:]
 
-        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
+        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers_with_cls_token(x, 4, norm=False)
         teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
         
         student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
@@ -233,8 +231,8 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
         feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
         feat = self.Projects_layers_Self(feat)
-
-        features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 3, return_class_token=False)
+        # feat = feat[:, 1:]/
+        features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 3)
 
         depth = self.depth_head(features, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
@@ -246,7 +244,7 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
     def forward_val(self, x):
         h, w = x.shape[-2:]
 
-        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=False, norm=False)
+        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, return_class_token=True, norm=False)
         teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
         
         student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
@@ -255,13 +253,14 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
         feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
         feat = self.Projects_layers_Self(feat)
-
-        features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 3, return_class_token=False)
+        feat = feat[:, 1:]
+        features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 3)
 
         depth = self.depth_head(features, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
         depth = F.relu(depth)
         depth = self.nomalize(depth) if self.training else depth
+
 
 
 
@@ -283,6 +282,9 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
 
         for i, (name, param) in enumerate(self.depth_head.named_parameters()):
             param.requires_grad = False
+                    
+        self.pretrained.unfreeze_last_n_blocks(n = 3)
+
 
 
     def diffusion_encode(self, x):

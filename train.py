@@ -162,10 +162,11 @@ def sequence_loss(flow_preds, flow_gt, valid):
     flow_loss = 0.0
 
     assert valid.shape == flow_gt.shape, [valid.shape, flow_gt.shape]
-    assert not torch.isinf(flow_gt[valid.bool()]).any()
-
+    assert not torch.isinf(flow_gt[valid]).any()
+    # print(valid.dtype, valid.shape)
+    # print(flow_preds.shape, flow_gt.shape)
     # L1 loss
-    flow_loss = F.l1_loss(flow_preds[valid.bool()], flow_gt[valid.bool()])
+    flow_loss = F.l1_loss(flow_preds[valid], flow_gt[valid])
     metrics = compute_errors(flow_gt, flow_preds, valid)
 
     
@@ -190,9 +191,9 @@ def fetch_optimizer(args, model):
     return optimizer, scheduler
 
 class Logger:
-    def __init__(self, rank, keys):
+    def __init__(self, rank, save_dir, keys):
         self.metric_history = {k: {} for k in keys}
-        self.writer = SummaryWriter(log_dir='runs') if rank == 0 else None
+        self.writer = SummaryWriter(log_dir=f'runs/{save_dir}') if rank == 0 else None
 
     def push(
         self, 
@@ -274,7 +275,7 @@ def train(rank, world_size, args):
         student_ckpt = 'depth_anything_vits14.pth'
         teacher_ckpt = 'depth_anything_vitl14.pth'
         if rank == 0:
-            logging.info(f"loading backbones from {student_ckpt} and {teacher_ckpt}")
+            logging.info(f"loading backbones from {student_ckpt} {teacher_ckpt}")
         AsymKD_Compress.load_backbone_from_ckpt(student_ckpt, teacher_ckpt, device=torch.device('cuda', rank))
         AsymKD_Compress.freeze_depth_latent1_style()
         
@@ -294,7 +295,7 @@ def train(rank, world_size, args):
         train_loader, val_loader = datasets.fetch_dataloader(args,rank, world_size)
         optimizer, scheduler = fetch_optimizer(args, model)
         scaler = GradScaler(enabled=args.mixed_precision)
-        logger = Logger(rank, keys=["val_compress", "val_student", "train_compress"])
+        logger = Logger(rank, args.save_dir, keys=["val_compress", "train_compress"])
 
         state = State(model, optimizer, scheduler)
 
@@ -365,7 +366,7 @@ def train(rank, world_size, args):
                         logger.add_image('Prediction', pred.astype(np.uint8), total_steps)
 
                     if total_steps % save_step == save_step-1:
-                        save_path = Path(f"checkpoint_depth_latent1_avg_ver/{total_steps + 1}_{args.name}.pth")
+                        save_path = Path(f"checkpoint_{args.save_dir}/{total_steps + 1}_{args.name}.pth")
                         logging.info(f"Saving file {save_path.absolute()}")
                         state.save(save_path)
 
@@ -374,6 +375,9 @@ def train(rank, world_size, args):
                     gc.collect()
 
                 if rank == 0 and total_steps % 250 == 250 - 1:
+                    logger.upload("train_compress", 250, total_steps)
+                    logger.flush("train_compress")
+                if rank == 0 and total_steps % 1000 == 1000 - 1:
                     model.eval()
                     vbar = tqdm(val_loader)
                     vbar.set_description(f"Validation")
@@ -381,25 +385,25 @@ def train(rank, world_size, args):
                         depth_image, flow, valid = [x.cuda() for x in data_blob]
                         h, w = depth_image.shape[-2:]
                         with torch.no_grad():
-                            pred_depths = AsymKD_Compress.forward_val(depth_image)
+                            pred_depths = []
+                            pred_depths.append(model.module(depth_image))
+                            
                             results = [sequence_loss(pred_depth, flow, valid.bool().unsqueeze(1)) for pred_depth in pred_depths]
-                            for model_type, result in zip(["val_compress", "val_student"], results):
+                            for model_type, result in zip(["val_compress"], results):
                                 loss, metrics = result
                                 logger.push(metrics, model_type)
 
-                    for model_type in ["val_compress", "val_student"]:
+                    for model_type in ["val_compress"]:
                         logger.upload(model_type, len(val_loader.dataset), total_steps)
                         logger.flush(model_type)
                     model.train()
-                    logger.upload("train_compress", 250, total_steps)
-                    logger.flush("train_compress")
 
                 total_steps += 1
             epoch += 1      
 
         print("FINISHED TRAINING")
         logger.close()
-        state.save(f"checkpoint_depth_latent1_avg_ver/{args.name}.pth")
+        state.save(f"checkpoint_{args.save_dir}/{args.name}.pth")
         return None
     finally:
         cleanup()
@@ -410,6 +414,7 @@ if __name__ == '__main__':
     parser.add_argument('--restore_ckpt', help="restore checkpoint")
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--epoch', type=int, default=3, help="length of training schedule.")
+    parser.add_argument('--save_dir', type=str, help="save_dir")
 
     # Training parameters
     parser.add_argument('--batch_size', type=int, default=6, help="batch size used during training.")
@@ -444,6 +449,6 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
-    Path("checkpoint_depth_latent1_avg_ver").mkdir(exist_ok=True, parents=True)
+    Path(f"checkpoint_{args.save_dir}").mkdir(exist_ok=True, parents=True)
     world_size = torch.cuda.device_count()
     mp.spawn(train, args=(world_size,args,), nprocs=world_size, join=True)
