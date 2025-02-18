@@ -256,6 +256,7 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         # feat = feat[:, 1:]
         features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 3)
 
+        
         depth = self.depth_head(features, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
         depth = F.relu(depth)
@@ -283,7 +284,7 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         for i, (name, param) in enumerate(self.depth_head.named_parameters()):
             param.requires_grad = False
                     
-        self.pretrained.unfreeze_last_n_blocks(n = 3)
+        # self.pretrained.unfreeze_last_n_blocks(n = 3)
 
 
 

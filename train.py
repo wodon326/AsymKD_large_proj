@@ -242,17 +242,17 @@ class State(object):
             'scheduler_state_dict': self.scheduler.state_dict(),
         }
     
-    def apply_snapshot(self, obj, device):
-        self.model.load_state_dict(obj['model_state_dict'].to(device), strict=False)
-        self.optimizer.load_state_dict(obj['optimizer_state_dict'].to(device))
-        self.scheduler.load_state_dict(obj['scheduler_state_dict'].to(device))
+    def apply_snapshot(self, obj):
+        self.model.load_state_dict(obj['model_state_dict'], strict=False)
+        # self.optimizer.load_state_dict(obj['optimizer_state_dict'])
+        # self.scheduler.load_state_dict(obj['scheduler_state_dict'])
     
     def save(self, path):
         torch.save(self.capture(), path)
     
     def load(self, path, device):
-        obj = torch.load(path, map_location=torch.device('cpu'))
-        self.apply_snapshot(obj, device)
+        obj = torch.load(path, map_location=device)
+        self.apply_snapshot(obj)
 
 def train(rank, world_size, args):
     try:
@@ -266,7 +266,7 @@ def train(rank, world_size, args):
         torch.cuda.manual_seed_all(1234)
 
         # init scalars
-        save_step = 250
+        save_step = 100
         total_steps = 0
         epoch = 0
 
@@ -306,7 +306,7 @@ def train(rank, world_size, args):
         # load snapshot
         if args.restore_ckpt is not None:
             assert args.restore_ckpt.endswith(".pth")
-            state.load(args.restore_ckpt, rank)
+            state.load(args.restore_ckpt, torch.device('cuda', rank))
 
         while total_steps < args.num_steps:
             for i_batch, data_blob in enumerate(pbar := tqdm(train_loader)):
@@ -374,10 +374,10 @@ def train(rank, world_size, args):
                     torch.cuda.empty_cache()
                     gc.collect()
 
-                if rank == 0 and total_steps % 250 == 250 - 1:
-                    logger.upload("train_compress", 250, total_steps)
+                if rank == 0 and total_steps % 100 == 100 - 1:
+                    logger.upload("train_compress", 100, total_steps)
                     logger.flush("train_compress")
-                if rank == 0 and total_steps % 1000 == 1000 - 1:
+                if rank == 0 and total_steps % 250 == 250 - 1:
                     model.eval()
                     vbar = tqdm(val_loader)
                     vbar.set_description(f"Validation")
