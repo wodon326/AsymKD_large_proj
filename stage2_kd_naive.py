@@ -14,7 +14,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
-from AsymKD.kd_naive_dpt_latent1_avg_ver import AsymKD_kd_naive_latent1_avg_ver
+from AsymKD.kd_naive_dpt_latent1_avg_ver_no_cls_token import AsymKD_kd_naive_latent1_avg_ver_no_cls
 from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss
 
 import core.AsymKD_datasets as datasets
@@ -293,7 +293,7 @@ def train(rank, world_size, args):
             print('AsymKD_Compress : ', new_state_dict.keys())
 
         # load model
-        student_model = AsymKD_kd_naive_latent1_avg_ver().to(rank)
+        student_model = AsymKD_kd_naive_latent1_avg_ver_no_cls().to(rank)
         new_state_dict = student_model.load_ckpt(ckpt, device=torch.device('cuda', rank))
         if rank == 0:
             logging.info(f"loading backbones from {ckpt}")

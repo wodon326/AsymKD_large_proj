@@ -244,7 +244,7 @@ class DinoVisionTransformer(nn.Module):
         patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
 
-    def prepare_tokens_with_masks(self, x, masks=None):
+    def prepare_tokens_with_masks(self, x, use_cls_token=True, masks=None):
         B, nc, w, h = x.shape
         x = self.patch_embed(x)
         if masks is not None:
@@ -262,6 +262,10 @@ class DinoVisionTransformer(nn.Module):
                 ),
                 dim=1,
             )
+
+        #remove cls token
+        if use_cls_token == False:
+            x = x[:, 1:]
 
         return x
     
@@ -340,8 +344,8 @@ class DinoVisionTransformer(nn.Module):
         assert len(output) == len(blocks_to_take), f"only {len(output)} / {len(blocks_to_take)} blocks found"
         return output
 
-    def _get_first_intermediate_layers_not_chunked(self, x, n=1):
-        x = self.prepare_tokens_with_masks(x)
+    def _get_first_intermediate_layers_not_chunked(self, x, n=1, use_cls_token = True):
+        x = self.prepare_tokens_with_masks(x,use_cls_token)
         # If n is an int, take the n last blocks. If it's a list, take them
         total_block_len = len(self.blocks)
         blocks_to_take = range(total_block_len - n, total_block_len) if isinstance(n, int) else n
@@ -437,9 +441,21 @@ class DinoVisionTransformer(nn.Module):
         self,
         x: torch.Tensor,
         n: Union[int, Sequence] = 1,  # Layers or n last layers to take
+        return_with_cls_token = False
     ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]]]:
         
         output = self._get_first_intermediate_layers_not_chunked(x, n)
+        if return_with_cls_token == False:
+            return output[:, 1 + self.num_register_tokens:]
+        return output
+    
+    def get_first_intermediate_layers_no_cls_token(
+        self,
+        x: torch.Tensor,
+        n: Union[int, Sequence] = 1,  # Layers or n last layers to take
+    ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]]]:
+        
+        output = self._get_first_intermediate_layers_not_chunked(x, n, use_cls_token=False)
         return output
     
     def get_first_intermediate_layers_all(
@@ -482,7 +498,8 @@ class DinoVisionTransformer(nn.Module):
         if norm:
             outputs = [self.norm(out) for out in gather_output]
         # class_tokens = [out[:, 0] for out in outputs]
-        outputs = [out[:, 1 + self.num_register_tokens:] for out in outputs]
+        if return_class_token == False:
+            outputs = [out[:, 1 + self.num_register_tokens:] for out in outputs]
         if reshape:
             B, _, w, h = x.shape
             outputs = [
