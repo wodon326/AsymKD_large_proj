@@ -231,7 +231,10 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
         feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
         feat = self.Projects_layers_Self(feat)
-        # feat = feat[:, 1:]/
+
+        #cls token 제거
+        feat = feat[:, 1:]
+
         features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 3)
 
         depth = self.depth_head(features, patch_h, patch_w)
@@ -253,9 +256,10 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
         feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
         feat = self.Projects_layers_Self(feat)
-        feat = feat[:, 1:]
+        # feat = feat[:, 1:]
         features = self.pretrained.get_intermediate_layers_start_intermediate(feat, 3)
 
+        
         depth = self.depth_head(features, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
         depth = F.relu(depth)
@@ -283,7 +287,7 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
         for i, (name, param) in enumerate(self.depth_head.named_parameters()):
             param.requires_grad = False
                     
-        self.pretrained.unfreeze_last_n_blocks(n = 3)
+        # self.pretrained.unfreeze_last_n_blocks(n = 3)
 
 
 
