@@ -139,12 +139,12 @@ class DPTHead(nn.Module):
         return out
         
         
-class Asymkd_unet_adapter_dpt_latent1_avg_ver(nn.Module):
+class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
     def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(Asymkd_unet_adapter_dpt_latent1_avg_ver, self).__init__()
+        super(Asymkd_unet_adapter_residual_dpt_latent1_avg_ver, self).__init__()
         
         assert encoder in ['vits', 'vitb', 'vitl']
-        print('Asymkd_unet_adapter_dpt_latent1_avg_ver')
+        print('Asymkd_unet_adapter_residual_dpt_latent1_avg_ver')
 
         # in case the Internet connection is not stable, please load the DINOv2 locally
         if localhub:
@@ -252,9 +252,9 @@ class Asymkd_unet_adapter_dpt_latent1_avg_ver(nn.Module):
         unet_feature = self.Unet_layers_Self_concat_2(torch.cat([unet_feature, student_intermediate_feature], dim=2))
         unet_feature = self.mlp_compress_layer2(unet_feature)
 
+        sum_feat = unet_feature + student_intermediate_feature
 
-
-        features = self.pretrained.get_intermediate_layers_start_intermediate(unet_feature, 3, return_class_token=True)
+        features = self.pretrained.get_intermediate_layers_start_intermediate(sum_feat, 3, return_class_token=True)
 
         depth = self.depth_head(features, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
@@ -262,7 +262,7 @@ class Asymkd_unet_adapter_dpt_latent1_avg_ver(nn.Module):
         depth = self.nomalize(depth) if self.training else depth
 
         if self.training:
-            return depth, unet_feature
+            return depth, sum_feat
         
         return depth
     

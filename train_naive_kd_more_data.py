@@ -16,6 +16,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from AsymKD.kd_naive_dpt_latent1_avg_ver import AsymKD_kd_naive_latent1_avg_ver
+from AsymKD.kd_adapter_dpt_latent1_avg_ver import Asymkd_unet_adapter_dpt_latent1_avg_ver
 from AsymKD.kd_naive_dpt_latent1_avg_ver_no_cls_token import AsymKD_kd_naive_latent1_avg_ver_no_cls
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss, PKDLoss
@@ -245,9 +246,9 @@ class State(object):
         }
     
     def apply_snapshot(self, obj):
-        self.model.load_state_dict(obj['model_state_dict'], strict=False)
+        self.model.module.load_state_dict(obj['model_state_dict'], strict=True)
         self.optimizer.load_state_dict(obj['optimizer_state_dict'])
-        self.scheduler.load_state_dict(obj['scheduler_state_dict'])
+        # self.scheduler.load_state_dict(obj['scheduler_state_dict'])
     
     def save(self, path):
         torch.save(self.capture(), path)
@@ -284,12 +285,12 @@ def train(rank, world_size, args):
             print('AsymKD_Compress : ', new_state_dict.keys())
 
         # load model
-        AsymKD_naive_kd = AsymKD_kd_naive_latent1_avg_ver().to(rank)
+        AsymKD_naive_kd = Asymkd_unet_adapter_dpt_latent1_avg_ver().to(rank)
         new_state_dict = AsymKD_naive_kd.load_ckpt(ckpt, device=torch.device('cuda', rank))
         if rank == 0:
             logging.info(f"loading backbones from {ckpt}")
             print('AsymKD_naive_kd : ', new_state_dict.keys())
-        AsymKD_naive_kd.freeze_kd_naive_dpt_latent1_with_kd_style()
+        AsymKD_naive_kd.freeze_kd_naive_unet_adapter_dpt_latent1_with_kd_style()
         
         if rank == 0:
             for n, p in AsymKD_naive_kd.named_parameters():
@@ -300,6 +301,7 @@ def train(rank, world_size, args):
         model.train()
         
         if rank == 0:
+            print(f"Parameter Count: {count_parameters(model)}")
             logging.info(f"Parameter Count: {count_parameters(model)}")
             logging.info("AsymKD_VIT Train")
         
@@ -320,7 +322,7 @@ def train(rank, world_size, args):
         if args.restore_ckpt is not None:
             assert args.restore_ckpt.endswith(".pth")
             state.load(args.restore_ckpt, torch.device('cuda', rank))
-            total_steps = 14500
+            total_steps = 90500
 
 
         while total_steps < args.num_steps:
@@ -447,7 +449,7 @@ if __name__ == '__main__':
     # Training parameters
     parser.add_argument('--batch_size', type=int, default=6, help="batch size used during training.")
     parser.add_argument('--train_datasets', nargs='+', default=['tartan_air'], help="training datasets.")
-    parser.add_argument('--lr', type=float, default=0.00005, help="max learning rate.")
+    parser.add_argument('--lr', type=float, default=0.00001, help="max learning rate.")
     parser.add_argument('--num_steps', type=int, default=100000, help="length of training schedule.")
     parser.add_argument('--image_size', type=int, nargs='+', default=[518, 518], help="size of the random image crops used during training.")
     parser.add_argument('--train_iters', type=int, default=16, help="number of updates to the disparity field in each forward pass.")
