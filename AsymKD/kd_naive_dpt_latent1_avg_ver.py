@@ -165,7 +165,7 @@ class AsymKD_kd_naive_latent1_avg_ver(nn.Module):
         intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
         patch_h, patch_w = h // 14, w // 14
 
-        features = self.pretrained.get_intermediate_layers_start_intermediate(intermediate_feature, 3, return_class_token=False)
+        features = self.pretrained.get_intermediate_layers_start_intermediate(intermediate_feature, 3, return_class_token=True)
 
         depth = self.depth_head(features, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
@@ -246,7 +246,7 @@ class AsymKD_kd_naive_latent1_avg_ver(nn.Module):
     ):
         assert ckpt.endswith('.pth'), 'Please provide the path to the checkpoint file.'
         
-        ckpt = torch.load(ckpt, map_location=device)
+        ckpt = torch.load(ckpt, map_location=device, weights_only = False)
         ckpt = ckpt['model_state_dict']
         model_state_dict = self.state_dict()
         new_state_dict = {}

@@ -420,7 +420,7 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
     ):
         assert ckpt.endswith('.pth'), 'Please provide the path to the checkpoint file.'
         
-        ckpt = torch.load(ckpt, map_location=device)
+        ckpt = torch.load(ckpt, map_location=device, weights_only = False)
         ckpt = ckpt['model_state_dict']
         model_state_dict = self.state_dict()
         new_state_dict = {}
