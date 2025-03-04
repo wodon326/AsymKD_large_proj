@@ -69,7 +69,7 @@ def process_images_in_folder(folder_path, model, save_dir):
     for image_path in image_paths:
         img_tensor = preprocess_image(image_path)
         with torch.no_grad():
-            student_intermediate_feature, compress_feat = model.feature_visualize(img_tensor)
+            student_intermediate_feature, compress_feat = model.feature_visualize_with_path1(img_tensor, reshape_to_image=True)
         
         base_filename = os.path.splitext(os.path.basename(image_path))[0]
         visualize_feature_map(student_intermediate_feature, save_dir, base_filename, "Student Feature Map")
@@ -103,5 +103,5 @@ if restore_ckpt is not None:
 
 # Example Usage
 image_folder = "./feature_visualize/image_folder"
-save_dir = "./feature_visualize/feature_visualize_output"
+save_dir = "./feature_visualize/decoder_feature_visualize_output"
 process_images_in_folder(image_folder, model, save_dir)

@@ -211,6 +211,9 @@ class DinoVisionTransformer(nn.Module):
             nn.init.normal_(self.register_tokens, std=1e-6)
         named_apply(init_weights_vit_timm, self)
 
+    def get_pos_embedding_variable(self):
+        return self.patch_embed.num_patches, self.interpolate_offset, self.interpolate_antialias
+
     def interpolate_pos_encoding(self, x, w, h):
         previous_dtype = x.dtype
         npatch = x.shape[1] - 1

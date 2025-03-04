@@ -10,6 +10,8 @@ last_runs/
 image_folder/
 feature_analysis_output/
 feature_visualize_output/
+decoder_feature_analysis_output/
+decoder_feature_visualize_output/
 debug*
 eval_result*
 *.npz

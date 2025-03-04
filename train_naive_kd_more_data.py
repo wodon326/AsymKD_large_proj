@@ -16,8 +16,15 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from AsymKD.kd_naive_dpt_latent1_avg_ver import AsymKD_kd_naive_latent1_avg_ver
+from AsymKD.kd_adapter_dpt_latent1_avg_ver_residual import Asymkd_unet_adapter_residual_dpt_latent1_avg_ver
 from AsymKD.kd_adapter_dpt_latent1_avg_ver import Asymkd_unet_adapter_dpt_latent1_avg_ver
 from AsymKD.kd_naive_dpt_latent1_avg_ver_no_cls_token import AsymKD_kd_naive_latent1_avg_ver_no_cls
+from AsymKD.kd_naive_dpt_latent1_2way_cnn_hybrid_residual import AsymKD_kd_naive_dpt_latent1_2way_cnn_hybrid_residual
+from AsymKD.kd_naive_dpt_latent1_2way_cnn_trans_hybrid_residual import AsymKD_kd_naive_dpt_latent1_2way_cnn_trans_hybrid_residual
+from AsymKD.kd_naive_dpt_latent1_cnn_trans_hybrid_residual import AsymKD_kd_naive_dpt_latent1_cnn_trans_hybrid_residual
+from AsymKD.kd_naive_dpt_latent1_cnn_trans_resnet_residual import Asymkd_kd_naive_dpt_latent1_resnet_adapter_residual
+from AsymKD.kd_naive_dpt_latent1_cnn_trans_resnet_cbam_residual import Asymkd_kd_naive_dpt_latent1_resnet_cbam_adapter_residual
+from AsymKD.kd_naive_dpt_latent1_cnn_trans_resnet_cbam_residual_transconv import Asymkd_kd_naive_dpt_latent1_resnet_cbam_transconv_adapter_residual
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss, PKDLoss
 from dataset.util.alignment_gpu import align_depth_least_square
@@ -184,7 +191,10 @@ def fetch_optimizer(args, model):
     # scheduler = optim.lr_scheduler.OneCycleLR(optimizer, args.lr, args.num_steps+100,
     #         pct_start=0.01, cycle_momentum=False, anneal_strategy='linear')
 
-    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wdecay, eps=1e-8)
+    if(args.train_style == 'cnn'):
+        optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+    else:
+        optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wdecay, eps=1e-8)
 
     scheduler = optim.lr_scheduler.OneCycleLR(optimizer, args.lr, args.num_steps+100,
             cycle_momentum=True, base_momentum=0.85, max_momentum=0.95, 
@@ -285,19 +295,19 @@ def train(rank, world_size, args):
             print('AsymKD_Compress : ', new_state_dict.keys())
 
         # load model
-        AsymKD_naive_kd = Asymkd_unet_adapter_dpt_latent1_avg_ver().to(rank)
+        AsymKD_naive_kd = AsymKD_kd_naive_dpt_latent1_2way_cnn_trans_hybrid_residual().to(rank)
         new_state_dict = AsymKD_naive_kd.load_ckpt(ckpt, device=torch.device('cuda', rank))
         if rank == 0:
             logging.info(f"loading backbones from {ckpt}")
             print('AsymKD_naive_kd : ', new_state_dict.keys())
-        AsymKD_naive_kd.freeze_kd_naive_unet_adapter_dpt_latent1_with_kd_style()
+        AsymKD_naive_kd.freeze_kd_naive_dpt_latent1_cnn_hybrid_with_kd_style()
         
         if rank == 0:
             for n, p in AsymKD_naive_kd.named_parameters():
                 print(f'{n} : {p.requires_grad}')
         AsymKD_naive_kd = torch.nn.SyncBatchNorm.convert_sync_batchnorm(AsymKD_naive_kd)
         #model.module.freeze_bn() # We keep BatchNorm frozen
-        model = DDP(AsymKD_naive_kd, device_ids=[rank],find_unused_parameters=True)
+        model = DDP(AsymKD_naive_kd, device_ids=[rank])
         model.train()
         
         if rank == 0:
@@ -375,7 +385,7 @@ def train(rank, world_size, args):
                     # _ , metrics = sequence_loss(flow_predictions, flow, valid.bool().unsqueeze(1))
                     # logger.push(metrics, "train_student")
 
-                    if(total_steps % 10 == 10-1):
+                    if(total_steps % 50 == 50-1):
                         # inference visualization in tensorboard while training
                         rgb = depth_image[0].cpu().detach().numpy()
                         rgb = ((rgb - np.min(rgb)) / (np.max(rgb) - np.min(rgb))) * 255
@@ -445,6 +455,7 @@ if __name__ == '__main__':
     parser.add_argument('--epoch', type=int, default=3, help="length of training schedule.")
     parser.add_argument('--ckpt', type=str, help="load_ckpt")
     parser.add_argument('--save_dir', type=str, help="save_dir")
+    parser.add_argument('--train_style', type=str, help="train_style")
 
     # Training parameters
     parser.add_argument('--batch_size', type=int, default=6, help="batch size used during training.")

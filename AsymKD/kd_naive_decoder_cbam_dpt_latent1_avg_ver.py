@@ -9,6 +9,7 @@ from depth_anything.blocks import FeatureFusionBlock, _make_scratch
 
 from torchhub.facebookresearch_dinov2_main.dinov2.layers.block import Channel_Based_CrossAttentionBlock,CrossAttentionBlock,Block
 from torchhub.facebookresearch_dinov2_main.dinov2.layers.mlp import Mlp
+from AsymKD.decoder_cbam_cnn_module import decoder_cbam_Adapter
 
 def _make_fusion_block(features, use_bn, size = None):
     return FeatureFusionBlock(
@@ -87,6 +88,8 @@ class DPTHead(nn.Module):
         self.scratch.refinenet3 = _make_fusion_block(features, use_bn)
         self.scratch.refinenet4 = _make_fusion_block(features, use_bn)
 
+        self.decoder_cbam = decoder_cbam_Adapter(output_channels=features)
+
         head_features_1 = features
         head_features_2 = 32
         
@@ -132,19 +135,23 @@ class DPTHead(nn.Module):
         path_2 = self.scratch.refinenet2(path_3, layer_2_rn, size=layer_1_rn.shape[2:])
         path_1 = self.scratch.refinenet1(path_2, layer_1_rn)
         
+        decoder_cbam = self.decoder_cbam(path_1)
+        path_1 = path_1 + decoder_cbam
         out = self.scratch.output_conv1(path_1)
         out = F.interpolate(out, (int(patch_h * 14), int(patch_w * 14)), mode="bilinear", align_corners=True)
         out = self.scratch.output_conv2(out)
         
-        return out
+        return out, path_1
+    
+
         
         
-class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
+class Asymkd_decoder_cbam_kd_naive_dpt_latent1(nn.Module):
     def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(Asymkd_unet_adapter_residual_dpt_latent1_avg_ver, self).__init__()
+        super(Asymkd_decoder_cbam_kd_naive_dpt_latent1, self).__init__()
         
         assert encoder in ['vits', 'vitb', 'vitl']
-        print('Asymkd_unet_adapter_residual_dpt_latent1_avg_ver')
+        print('Asymkd_decoder_cbam_kd_naive_dpt_latent1')
 
         # in case the Internet connection is not stable, please load the DINOv2 locally
         if localhub:
@@ -155,96 +162,8 @@ class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
 
         dim = self.pretrained.blocks[0].attn.qkv.in_features
 
-        
-        depth = 1
-        drop_path_rate=0.0
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
-
-        in_channels_384 = 384
-
-        self.Unet_layers_Self1 = Block(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        self.Unet_layers_Self2 = Block(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        
-        self.mlp_compress_layer1 = Mlp(
-                in_features=in_channels_384*2,
-                out_features= in_channels_384,
-            )
-        
-        self.mlp_compress_layer2 =  Mlp(
-                in_features=in_channels_384*2,
-                out_features= in_channels_384,
-            )
-        
-        self.Unet_layers_Self_concat_1 = Block(
-                dim=in_channels_384*2,
-                num_heads=16,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        self.Unet_layers_Self_concat_2 = Block(
-                dim=in_channels_384*2,
-                num_heads=16,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        
-        
-        self.Unet_layers_last_self = Block(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        
 
         self.depth_head = DPTHead(1, dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
-
-        
 
         self.nomalize = NormalizeLayer()
 
@@ -256,40 +175,30 @@ class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
         student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
         patch_h, patch_w = h // 14, w // 14
 
-        unet_feat1 = self.Unet_layers_Self1(student_intermediate_feature)
-        unet_feat2 = self.Unet_layers_Self2(unet_feat1)   
 
+        features = self.pretrained.get_intermediate_layers_start_intermediate(student_intermediate_feature, 3, return_class_token=True)
 
-        unet_feature = self.Unet_layers_Self_concat_1(torch.cat([unet_feat1, unet_feat2], dim=2))
-        unet_feature = self.mlp_compress_layer1(unet_feature)
-
-
-        unet_feature = self.Unet_layers_Self_concat_2(torch.cat([unet_feature, student_intermediate_feature], dim=2))
-        unet_feature = self.mlp_compress_layer2(unet_feature)
-        unet_feature = self.Unet_layers_last_self(unet_feature)
-        
-        sum_feat = unet_feature + student_intermediate_feature
-
-        features = self.pretrained.get_intermediate_layers_start_intermediate(sum_feat, 3, return_class_token=True)
-
-        depth = self.depth_head(features, patch_h, patch_w)
+        depth, path_1 = self.depth_head(features, patch_h, patch_w)
         depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
         depth = F.relu(depth)
         depth = self.nomalize(depth) if self.training else depth
 
         if self.training:
-            return depth, sum_feat
+            return depth, path_1
         
         return depth
     
     
-    def freeze_kd_naive_unet_adapter_dpt_latent1_with_kd_style(self):
+    def freeze_kd_naive_decoder_cbam_dpt_latent1_with_kd_style(self):
         for i, (name, param) in enumerate(self.pretrained.named_parameters()):
             param.requires_grad = False
 
         for i, (name, param) in enumerate(self.depth_head.named_parameters()):
             param.requires_grad = False
     
+        for i, (name, param) in enumerate(self.depth_head.decoder_cbam.named_parameters()):
+            param.requires_grad = True
+
     def load_backbone_from_ckpt(
         self,
         student_ckpt: str,

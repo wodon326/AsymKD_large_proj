@@ -10,6 +10,8 @@ from depth_anything.blocks import FeatureFusionBlock, _make_scratch
 from torchhub.facebookresearch_dinov2_main.dinov2.layers.block import Channel_Based_CrossAttentionBlock,CrossAttentionBlock,Block
 from torchhub.facebookresearch_dinov2_main.dinov2.layers.mlp import Mlp
 
+from AsymKD.unet_cnn_module import UNet_CBAM_adapter
+
 def _make_fusion_block(features, use_bn, size = None):
     return FeatureFusionBlock(
         features,
@@ -139,136 +141,39 @@ class DPTHead(nn.Module):
         return out
         
         
-class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
+class AsymKD_kd_naive_dpt_latent1_2way_cnn_hybrid_residual(nn.Module):
     def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(Asymkd_unet_adapter_residual_dpt_latent1_avg_ver, self).__init__()
+        super(AsymKD_kd_naive_dpt_latent1_2way_cnn_hybrid_residual, self).__init__()
         
         assert encoder in ['vits', 'vitb', 'vitl']
-        print('Asymkd_unet_adapter_residual_dpt_latent1_avg_ver')
+        print('AsymKD_kd_naive_dpt_latent1_2way_cnn_hybrid_residual')
 
         # in case the Internet connection is not stable, please load the DINOv2 locally
         if localhub:
-            self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(encoder), source='local', pretrained=False).eval()
+            self.pretrained = torch.hub.load('torchhub/facebookresearch_dinov2_main', 'dinov2_{:}14'.format(encoder), source='local', pretrained=False)
         else:
-            self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(encoder)).eval()
-
+            self.pretrained = torch.hub.load('facebookresearch/dinov2', 'dinov2_{:}14'.format(encoder))
 
         dim = self.pretrained.blocks[0].attn.qkv.in_features
-
         
-        depth = 1
-        drop_path_rate=0.0
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
-
-        in_channels_384 = 384
-
-        self.Unet_layers_Self1 = Block(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        self.Unet_layers_Self2 = Block(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        
-        self.mlp_compress_layer1 = Mlp(
-                in_features=in_channels_384*2,
-                out_features= in_channels_384,
-            )
-        
-        self.mlp_compress_layer2 =  Mlp(
-                in_features=in_channels_384*2,
-                out_features= in_channels_384,
-            )
-        
-        self.Unet_layers_Self_concat_1 = Block(
-                dim=in_channels_384*2,
-                num_heads=16,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        self.Unet_layers_Self_concat_2 = Block(
-                dim=in_channels_384*2,
-                num_heads=16,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        
-        
-        self.Unet_layers_last_self = Block(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        
+        self.unet_cbam_adapter = UNet_CBAM_adapter(output_channels=dim)
 
         self.depth_head = DPTHead(1, dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
 
-        
+
+
 
         self.nomalize = NormalizeLayer()
 
     def forward(self, x):
         h, w = x.shape[-2:]
+        patch_h, patch_w = h // 14, w // 14
         self.pretrained.eval()
         self.depth_head.eval()
         
         student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
-        patch_h, patch_w = h // 14, w // 14
-
-        unet_feat1 = self.Unet_layers_Self1(student_intermediate_feature)
-        unet_feat2 = self.Unet_layers_Self2(unet_feat1)   
-
-
-        unet_feature = self.Unet_layers_Self_concat_1(torch.cat([unet_feat1, unet_feat2], dim=2))
-        unet_feature = self.mlp_compress_layer1(unet_feature)
-
-
-        unet_feature = self.Unet_layers_Self_concat_2(torch.cat([unet_feature, student_intermediate_feature], dim=2))
-        unet_feature = self.mlp_compress_layer2(unet_feature)
-        unet_feature = self.Unet_layers_last_self(unet_feature)
-        
-        sum_feat = unet_feature + student_intermediate_feature
+        uent_cbam_feature = self.unet_cbam_adapter(x,patch_h, patch_w)
+        sum_feat = student_intermediate_feature + uent_cbam_feature
 
         features = self.pretrained.get_intermediate_layers_start_intermediate(sum_feat, 3, return_class_token=True)
 
@@ -282,13 +187,15 @@ class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
         
         return depth
     
-    
-    def freeze_kd_naive_unet_adapter_dpt_latent1_with_kd_style(self):
+    def freeze_kd_naive_dpt_latent1_cnn_hybrid_with_kd_style(self):
+        
         for i, (name, param) in enumerate(self.pretrained.named_parameters()):
             param.requires_grad = False
 
         for i, (name, param) in enumerate(self.depth_head.named_parameters()):
             param.requires_grad = False
+
+        
     
     def load_backbone_from_ckpt(
         self,
@@ -305,12 +212,9 @@ class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
         model_state_dict.update(new_state_dict)
         self.load_state_dict(model_state_dict)
 
-
-        for i, (name, param) in enumerate(self.pretrained.named_parameters()):
-            param.requires_grad = False
-        
-        return None
     
+        return None
+
     def load_ckpt(
         self,
         ckpt: str,
@@ -332,8 +236,7 @@ class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
         self.load_state_dict(model_state_dict)
     
         return new_state_dict
-
-
+    
 class NormalizeLayer(nn.Module):
     def __init__(self):
         super(NormalizeLayer, self).__init__()
@@ -343,18 +246,3 @@ class NormalizeLayer(nn.Module):
         max_val = x.amax(dim=(1, 2, 3), keepdim=True)  # 각 배치별 최대값
         x = (x - min_val) / (max_val - min_val + 1e-6)
         return x
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--encoder",
-        default="vits",
-        type=str,
-        choices=["vits", "vitb", "vitl"],
-    )
-    args = parser.parse_args()
-    
-    model = DepthAnything.from_pretrained("LiheYoung/depth_anything_{:}14".format(args.encoder))
-    
-    print(model)
-    

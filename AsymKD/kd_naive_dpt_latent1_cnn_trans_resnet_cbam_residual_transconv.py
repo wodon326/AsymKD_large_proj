@@ -9,6 +9,7 @@ from depth_anything.blocks import FeatureFusionBlock, _make_scratch
 
 from torchhub.facebookresearch_dinov2_main.dinov2.layers.block import Channel_Based_CrossAttentionBlock,CrossAttentionBlock,Block
 from torchhub.facebookresearch_dinov2_main.dinov2.layers.mlp import Mlp
+from AsymKD.resnet_cbam_cnn_module_transconv import Residual_cbam_transconv_Adapter
 
 def _make_fusion_block(features, use_bn, size = None):
     return FeatureFusionBlock(
@@ -139,12 +140,12 @@ class DPTHead(nn.Module):
         return out
         
         
-class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
+class Asymkd_kd_naive_dpt_latent1_resnet_cbam_transconv_adapter_residual(nn.Module):
     def __init__(self, encoder='vits', features= 64, out_channels= [48, 96, 192, 384], use_bn=False, use_clstoken=False, localhub=True):
-        super(Asymkd_unet_adapter_residual_dpt_latent1_avg_ver, self).__init__()
+        super(Asymkd_kd_naive_dpt_latent1_resnet_cbam_transconv_adapter_residual, self).__init__()
         
         assert encoder in ['vits', 'vitb', 'vitl']
-        print('Asymkd_unet_adapter_residual_dpt_latent1_avg_ver')
+        print('Asymkd_kd_naive_dpt_latent1_resnet_cbam_transconv_adapter_residual')
 
         # in case the Internet connection is not stable, please load the DINOv2 locally
         if localhub:
@@ -155,6 +156,8 @@ class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
 
         dim = self.pretrained.blocks[0].attn.qkv.in_features
 
+
+        self.Residual_Adapter = Residual_cbam_transconv_Adapter()
         
         depth = 1
         drop_path_rate=0.0
@@ -162,45 +165,8 @@ class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
 
         in_channels_384 = 384
 
-        self.Unet_layers_Self1 = Block(
+        self.refine_layers_Self1 = Block(
                 dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        self.Unet_layers_Self2 = Block(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        
-        self.mlp_compress_layer1 = Mlp(
-                in_features=in_channels_384*2,
-                out_features= in_channels_384,
-            )
-        
-        self.mlp_compress_layer2 =  Mlp(
-                in_features=in_channels_384*2,
-                out_features= in_channels_384,
-            )
-        
-        self.Unet_layers_Self_concat_1 = Block(
-                dim=in_channels_384*2,
                 num_heads=16,
                 mlp_ratio=4,
                 qkv_bias=True,
@@ -212,8 +178,21 @@ class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
                 ffn_layer=Mlp,
                 init_values=None,
             )
-        self.Unet_layers_Self_concat_2 = Block(
-                dim=in_channels_384*2,
+        self.refine_layers_Self2 = Block(
+                dim=in_channels_384,
+                num_heads=16,
+                mlp_ratio=4,
+                qkv_bias=True,
+                proj_bias=True,
+                ffn_bias=True,
+                drop_path=dpr[0],
+                norm_layer=partial(nn.LayerNorm, eps=1e-6),
+                act_layer=nn.GELU,
+                ffn_layer=Mlp,
+                init_values=None,
+            )
+        self.refine_layers_Self3 = Block(
+                dim=in_channels_384,
                 num_heads=16,
                 mlp_ratio=4,
                 qkv_bias=True,
@@ -227,24 +206,7 @@ class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
             )
         
         
-        self.Unet_layers_last_self = Block(
-                dim=in_channels_384,
-                num_heads=6,
-                mlp_ratio=4,
-                qkv_bias=True,
-                proj_bias=True,
-                ffn_bias=True,
-                drop_path=dpr[0],
-                norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                act_layer=nn.GELU,
-                ffn_layer=Mlp,
-                init_values=None,
-            )
-        
-
         self.depth_head = DPTHead(1, dim, features, use_bn, out_channels=out_channels, use_clstoken=use_clstoken)
-
-        
 
         self.nomalize = NormalizeLayer()
 
@@ -256,19 +218,21 @@ class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
         student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
         patch_h, patch_w = h // 14, w // 14
 
-        unet_feat1 = self.Unet_layers_Self1(student_intermediate_feature)
-        unet_feat2 = self.Unet_layers_Self2(unet_feat1)   
+        resnet_feature = self.Residual_Adapter(student_intermediate_feature, h, w, patch_h, patch_w)
+        # sum_feat = resnet_feature + student_intermediate_feature
 
+        resnet_feature = self.refine_layers_Self1(resnet_feature)
+        # sum_feat = resnet_feature + sum_feat
 
-        unet_feature = self.Unet_layers_Self_concat_1(torch.cat([unet_feat1, unet_feat2], dim=2))
-        unet_feature = self.mlp_compress_layer1(unet_feature)
+        resnet_feature = self.refine_layers_Self2(resnet_feature)
+        # sum_feat = resnet_feature + sum_feat
 
+        resnet_feature = self.refine_layers_Self3(resnet_feature)
 
-        unet_feature = self.Unet_layers_Self_concat_2(torch.cat([unet_feature, student_intermediate_feature], dim=2))
-        unet_feature = self.mlp_compress_layer2(unet_feature)
-        unet_feature = self.Unet_layers_last_self(unet_feature)
+        # resnet_feature = self.refine_layers_Self4(resnet_feature)
+        # # sum_feat = resnet_feature + sum_feat
+        sum_feat = resnet_feature + student_intermediate_feature
         
-        sum_feat = unet_feature + student_intermediate_feature
 
         features = self.pretrained.get_intermediate_layers_start_intermediate(sum_feat, 3, return_class_token=True)
 
@@ -283,7 +247,7 @@ class Asymkd_unet_adapter_residual_dpt_latent1_avg_ver(nn.Module):
         return depth
     
     
-    def freeze_kd_naive_unet_adapter_dpt_latent1_with_kd_style(self):
+    def freeze_kd_naive_resnet_cbam_transconv_adapter_dpt_latent1_with_kd_style(self):
         for i, (name, param) in enumerate(self.pretrained.named_parameters()):
             param.requires_grad = False
 

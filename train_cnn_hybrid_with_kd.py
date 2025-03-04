@@ -15,7 +15,7 @@ import torch.optim as optim
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
-from AsymKD.kd_naive_dpt_latent1_cnn_hybrid import AsymKD_kd_naive_dpt_latent1_cnn_hybrid
+from AsymKD.kd_naive_dpt_latent1_2way_cnn_hybrid_residual import AsymKD_kd_naive_dpt_latent1_cnn_hybrid
 from AsymKD.dpt_latent1_avg_ver import AsymKD_compress_latent1_avg_ver
 from core.loss import GradL1Loss, ScaleAndShiftInvariantLoss, PKDLoss
 from dataset.util.alignment_gpu import align_depth_least_square

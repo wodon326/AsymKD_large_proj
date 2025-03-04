@@ -108,7 +108,7 @@ class DPTHead(nn.Module):
                 nn.Identity(),
             )
             
-    def forward(self, out_features, patch_h, patch_w):
+    def forward(self, out_features, patch_h, patch_w, return_path_1 = False):
         out = []
         for i, x in enumerate(out_features):
             x = x.permute(0, 2, 1).reshape((x.shape[0], x.shape[-1], patch_h, patch_w))
@@ -136,6 +136,9 @@ class DPTHead(nn.Module):
         out = self.scratch.output_conv1(path_1)
         out = F.interpolate(out, (int(patch_h * 14), int(patch_w * 14)), mode="bilinear", align_corners=True)
         out = self.scratch.output_conv2(out)
+        
+        if return_path_1:
+            return out, path_1
         
         return out
         
@@ -241,6 +244,8 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
 
         return depth
     
+
+    
     def forward_val(self, x):
         h, w = x.shape[-2:]
 
@@ -340,6 +345,29 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
 
         return depth, compress_feat
     
+    def forward_with_path_1(self, x):
+        h, w = x.shape[-2:]
+
+        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, norm=False)
+        teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
+        
+        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
+        patch_h, patch_w = h // 14, w // 14
+
+        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
+        compress_feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
+        compress_feat = self.Projects_layers_Self(compress_feat)
+        # feat = feat[:, 1:]
+        features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feat, 3, return_class_token=True)
+
+        depth, path1 = self.depth_head(features, patch_h, patch_w, return_path_1=True)
+        depth = F.interpolate(depth, size=(h, w), mode="bilinear", align_corners=True)
+        depth = F.relu(depth)
+        depth = self.nomalize(depth) if self.training else depth
+
+        return depth, path1
+
+    
     def forward_with_normalize_compress_feat(self, x):
         h, w = x.shape[-2:]
 
@@ -380,6 +408,35 @@ class AsymKD_compress_latent1_avg_ver(nn.Module):
             compress_feat = compress_feat.permute(0, 2, 1).reshape((compress_feat.shape[0], compress_feat.shape[-1], patch_h, patch_w))
         
         return student_intermediate_feature, compress_feat
+    
+    def feature_visualize_with_path1(self, x, reshape_to_image = True):
+        h, w = x.shape[-2:]
+
+        teacher_intermediate_feature = self.teacher_pretrained.get_intermediate_layers(x, 4, norm=False)
+        teacher_intermediate_feature = torch.stack(teacher_intermediate_feature).mean(dim=0)
+        
+        student_intermediate_feature = self.pretrained.get_first_intermediate_layers(x, 4)
+        patch_h, patch_w = h // 14, w // 14
+
+        channel_proj_feat = self.Projects_layers_Channel_based_CrossAttn_Block(student_intermediate_feature,teacher_intermediate_feature)
+        compress_feat = self.Projects_layers_Cross(student_intermediate_feature,channel_proj_feat)
+        compress_feat = self.Projects_layers_Self(compress_feat)
+        # feat = feat[:, 1:]
+        features = self.pretrained.get_intermediate_layers_start_intermediate(compress_feat, 3, return_class_token=True)
+
+        depth, compress_path1 = self.depth_head(features, patch_h, patch_w, return_path_1=True)
+
+        features = self.pretrained.get_intermediate_layers_start_intermediate(student_intermediate_feature, 3, return_class_token=True)
+
+        depth, path1 = self.depth_head(features, patch_h, patch_w, return_path_1=True)
+
+        if(reshape_to_image == False):
+            b, c, h, w = path1.shape
+            path1 = path1.reshape((path1.shape[0], path1.shape[1], h*w)).permute(0,2,1)
+            b, c, h, w = compress_path1.shape
+            compress_path1 = compress_path1.reshape((compress_path1.shape[0], compress_path1.shape[1], h*w)).permute(0,2,1)
+
+        return path1, compress_path1
     
     def load_backbone_from_ckpt(
         self,
